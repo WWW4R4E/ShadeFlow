@@ -3,6 +3,7 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 
 const Device = @import("Device.zig").Device;
+const HResultError = @import("Error.zig").HResultError;
 
 // 纹理类型枚举
 pub const TextureType = enum {
@@ -15,7 +16,6 @@ pub const TextureType = enum {
 pub const Texture = struct {
     texture: ?*win32.ID3D11Texture2D,
     shader_resource_view: ?*win32.ID3D11ShaderResourceView,
-    render_target_view: ?*win32.ID3D11RenderTargetView,
     depth_stencil_view: ?*win32.ID3D11DepthStencilView,
     texture_type: TextureType,
     width: u32,
@@ -25,7 +25,6 @@ pub const Texture = struct {
         return Texture{
             .texture = null,
             .shader_resource_view = null,
-            .render_target_view = null,
             .depth_stencil_view = null,
             .texture_type = texture_type,
             .width = 0,
@@ -33,7 +32,7 @@ pub const Texture = struct {
         };
     }
 
-    pub fn createFromFile(self: *Texture, device: *Device, path: []const u8) !void {
+    pub fn createFromFile(self: *Texture, device: *Device, path: []const u8) HResultError!void {
         // 确保是2D纹理类型
         if (self.texture_type != .texture_2d) {
             return error.InvalidTextureType;
@@ -79,8 +78,9 @@ pub const Texture = struct {
 
         // 创建纹理
         var texture: ?*win32.ID3D11Texture2D = null;
-        if (device.d3d_device.CreateTexture2D(&texture_desc, null, &texture) != win32.S_OK) {
-            return error.FailedToCreateTexture;
+        const hr_tex = device.d3d_device.CreateTexture2D(&texture_desc, null, &texture);
+        if (hr_tex != win32.S_OK) {
+            return HResultError.init(hr_tex);
         }
 
         // 创建着色器资源视图
@@ -94,9 +94,10 @@ pub const Texture = struct {
             },
         };
 
-        if (device.d3d_device.CreateShaderResourceView(texture.?, &srv_desc, &shader_resource_view) != win32.S_OK) {
+        const hr_srv = device.d3d_device.CreateShaderResourceView(texture.?, &srv_desc, &shader_resource_view);
+        if (hr_srv != win32.S_OK) {
             texture.?.Release();
-            return error.FailedToCreateShaderResourceView;
+            return HResultError.init(hr_srv);
         }
 
         // 释放旧资源
@@ -109,7 +110,7 @@ pub const Texture = struct {
         self.height = height;
     }
 
-    pub fn createRenderTarget(self: *Texture, device: *Device, width: u32, height: u32) !void {
+    pub fn createRenderTarget(self: *Texture, device: *Device, width: u32, height: u32) HResultError!void {
         // 确保是渲染目标类型
         if (self.texture_type != .render_target) {
             return error.InvalidTextureType;
@@ -134,8 +135,9 @@ pub const Texture = struct {
 
         // 创建纹理
         var texture: ?*win32.ID3D11Texture2D = null;
-        if (device.d3d_device.CreateTexture2D(&texture_desc, null, &texture) != win32.S_OK) {
-            return error.FailedToCreateRenderTargetTexture;
+        const hr_tex = device.d3d_device.CreateTexture2D(&texture_desc, null, &texture);
+        if (hr_tex != win32.S_OK) {
+            return HResultError.init(hr_tex);
         }
 
         // 创建渲染目标视图
@@ -148,9 +150,10 @@ pub const Texture = struct {
             },
         };
 
-        if (device.d3d_device.CreateRenderTargetView(texture.?, &rtv_desc, &render_target_view) != win32.S_OK) {
+        const hr_rtv = device.d3d_device.CreateRenderTargetView(texture.?, &rtv_desc, &render_target_view);
+        if (hr_rtv != win32.S_OK) {
             texture.?.Release();
-            return error.FailedToCreateRenderTargetView;
+            return HResultError.init(hr_rtv);
         }
 
         // 释放旧资源
@@ -182,14 +185,17 @@ pub const Texture = struct {
             },
             .Usage = win32.D3D11_USAGE_DEFAULT,
             .BindFlags = win32.D3D11_BIND_DEPTH_STENCIL,
-            .CPUAccessFlags = win32.D3D11_CPU_ACCESS_FLAG{},
-            .MiscFlags = win32.D3D11_RESOURCE_MISC_FLAG{},
+            .CPUAccessFlags = @bitCast(@as(u32, 0)),
+            .MiscFlags = @bitCast(@as(u32, 0)),
         };
 
         // 创建纹理
         var texture: ?*win32.ID3D11Texture2D = null;
-        if (device.d3d_device.CreateTexture2D(&texture_desc, null, @ptrCast(&texture)) != win32.S_OK) {
-            return error.FailedToCreateDepthStencilTexture;
+        const hr_tex = device.d3d_device.CreateTexture2D(&texture_desc, null, @ptrCast(&texture));
+        if (hr_tex != win32.S_OK) {
+            var hr_error: HResultError = undefined;
+            hr_error.init(hr_tex);
+            return error.HResultError;
         }
 
         // 创建深度模板视图
@@ -197,7 +203,7 @@ pub const Texture = struct {
         const dsv_desc = win32.D3D11_DEPTH_STENCIL_VIEW_DESC{
             .Format = win32.DXGI_FORMAT_D24_UNORM_S8_UINT,
             .ViewDimension = win32.D3D11_DSV_DIMENSION_TEXTURE2D,
-            .Flags = 1,
+            .Flags = 0,
             .Anonymous = .{
                 .Texture2D = .{
                     .MipSlice = 0,
@@ -205,61 +211,35 @@ pub const Texture = struct {
             },
         };
 
-        if (device.d3d_device.CreateDepthStencilView(@ptrCast(texture.?), &dsv_desc, @ptrCast(&depth_stencil_view)) != win32.S_OK) {
-            _ = texture.?.IUnknown.Release();
-            return error.FailedToCreateDepthStencilView;
+        const hr_dsv = device.d3d_device.CreateDepthStencilView(@ptrCast(texture.?), &dsv_desc, @ptrCast(&depth_stencil_view));
+        if (hr_dsv != win32.S_OK) {
+            if (texture) |tex| _ = tex.IUnknown.Release();
+            var hr_error: HResultError = undefined;
+            hr_error.init(hr_dsv);
+            return error.HResultError;
         }
 
         // 释放旧资源
         self.deinit();
 
         // 更新状态
-        self.texture = texture.?;
-        self.depth_stencil_view = depth_stencil_view.?;
+        self.texture = texture;
+        self.depth_stencil_view = depth_stencil_view;
         self.width = width;
         self.height = height;
     }
 
-    pub fn bindShaderResource(self: *Texture, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
-        if (self.shader_resource_view != null) {
-            device_context.PSSetShaderResources(slot, 1, &self.shader_resource_view);
-        }
-    }
-
-    pub fn bindRenderTarget(self: *Texture, device_context: *win32.ID3D11DeviceContext, depth_stencil: ?*Texture) void {
-        if (self.render_target_view != null) {
-            const rtv = &self.render_target_view;
-            const dsv = if (depth_stencil) |ds| ds.depth_stencil_view else null;
-
-            device_context.OMSetRenderTargets(1, rtv, dsv);
-        }
-    }
-
-    pub fn clearRenderTarget(self: *Texture, device_context: *win32.ID3D11DeviceContext, color: [4]f32) void {
-        if (self.render_target_view != null) {
-            device_context.ClearRenderTargetView(self.render_target_view.?, &color);
-        }
-    }
-
-    pub fn clearDepthStencil(self: *Texture, device_context: *win32.ID3D11DeviceContext, clear_depth: bool, clear_stencil: bool, depth: f32, stencil: u8) void {
-        if (self.depth_stencil_view != null) {
-            var flags: c_uint = 0;
-            if (clear_depth) flags |= @intFromEnum(win32.D3D11_CLEAR_DEPTH);
-            if (clear_stencil) flags |= @intFromEnum(win32.D3D11_CLEAR_STENCIL);
-
-            device_context.ClearDepthStencilView(self.depth_stencil_view.?, flags, depth, stencil);
-        }
-    }
-
     pub fn deinit(self: *Texture) void {
-        if (self.texture) |t| _ = t.IUnknown.Release();
-        if (self.shader_resource_view) |srv| _ = srv.IUnknown.Release();
-        if (self.render_target_view) |rtv| _ = rtv.IUnknown.Release();
         if (self.depth_stencil_view) |dsv| _ = dsv.IUnknown.Release();
+        if (self.shader_resource_view) |srv| _ = srv.IUnknown.Release();
+        if (self.texture) |tex| _ = tex.IUnknown.Release();
 
-        self.texture = null;
-        self.shader_resource_view = null;
-        self.render_target_view = null;
         self.depth_stencil_view = null;
+        self.shader_resource_view = null;
+        self.texture = null;
+    }
+
+    pub fn getDepthStencilView(self: *Texture) ?*win32.ID3D11DepthStencilView {
+        return self.depth_stencil_view;
     }
 };

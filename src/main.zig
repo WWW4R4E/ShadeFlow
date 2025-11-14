@@ -20,7 +20,6 @@ pub const MyApplication = struct {
     pub fn deinit(self: *MyApplication) void {
         self.base.onDestroy();
         self.base.deinit();
-        self.base.allocator.destroy(self);
     }
 
     pub fn run(self: *MyApplication) !void {

@@ -3,6 +3,7 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 
 const Device = @import("Device.zig").Device;
+const HResultError = @import("Error.zig").HResultError;
 
 // 缓冲区类型枚举
 pub const BufferType = enum {
@@ -72,8 +73,11 @@ pub const Buffer = struct {
 
         // 创建缓冲区
         var buffer: ?*win32.ID3D11Buffer = null;
-        if (device.d3d_device.CreateBuffer(&buffer_desc, if (initial_data) |*id| id else null, @ptrCast(&buffer)) != win32.S_OK) {
-            return error.FailedToCreateVertexBuffer;
+        const hr = device.d3d_device.CreateBuffer(&buffer_desc, if (initial_data) |*id| id else null, @ptrCast(&buffer));
+        if (hr != win32.S_OK) {
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr);
+            return error.HResultError;
         }
 
         // 释放旧缓冲区
@@ -85,7 +89,7 @@ pub const Buffer = struct {
         self.count = @intCast(data.len / stride);
     }
 
-    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) !void {
+    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) HResultError!void {
         // 确保是索引缓冲区类型
         if (self.buffer_type != .index) {
             return error.InvalidBufferType;
@@ -110,8 +114,9 @@ pub const Buffer = struct {
 
         // 创建缓冲区
         var buffer: ?*win32.ID3D11Buffer = null;
-        if (device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, &buffer) != win32.S_OK) {
-            return error.FailedToCreateIndexBuffer;
+        const hr = device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, &buffer);
+        if (hr != win32.S_OK) {
+            return HResultError.init(hr);
         }
 
         // 释放旧缓冲区
@@ -123,7 +128,7 @@ pub const Buffer = struct {
         self.count = data.len;
     }
 
-    pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) !void {
+    pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) HResultError!void {
         // 确保是常量缓冲区类型
         if (self.buffer_type != .constant) {
             return error.InvalidBufferType;
@@ -141,8 +146,12 @@ pub const Buffer = struct {
 
         // 创建缓冲区
         var buffer: ?*win32.ID3D11Buffer = null;
-        if (device.d3d_device.CreateBuffer(&buffer_desc, null, &buffer) != win32.S_OK) {
-            return error.FailedToCreateConstantBuffer;
+        const hr = device.d3d_device.CreateBuffer(&buffer_desc, null, &buffer);
+        if (hr != win32.S_OK) {
+            std.debug.print("Failed to create constant buffer: 0x{X}\n", .{hr});
+            return HResultError.init(hr);
+        } else {
+            std.debug.print("Successfully created constant buffer: {?}\n", .{buffer});
         }
 
         // 释放旧缓冲区
@@ -154,7 +163,7 @@ pub const Buffer = struct {
         self.count = 0;
     }
 
-    pub fn updateConstantBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, data: []const u8) !void {
+    pub fn updateConstantBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, data: []const u8) HResultError!void {
         if (self.buffer_type != .constant) {
             return error.InvalidBufferType;
         }
@@ -165,8 +174,9 @@ pub const Buffer = struct {
 
         // 映射缓冲区
         var mapped_resource: win32.D3D11_MAPPED_SUBRESOURCE = undefined;
-        if (device_context.Map(self.buffer.?, 0, win32.D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource) != win32.S_OK) {
-            return error.FailedToMapBuffer;
+        const hr = device_context.Map(self.buffer.?, 0, win32.D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+        if (hr != win32.S_OK) {
+            return HResultError.init(hr);
         }
 
         // 复制数据
@@ -178,9 +188,15 @@ pub const Buffer = struct {
 
     pub fn bindVertexBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .vertex and self.buffer != null) {
-            const offset: u32 = 0;
-            const stride_ptr: [*]const u32 = @ptrCast(&self.stride);
-            device_context.IASetVertexBuffers(slot, 1, @ptrCast(&self.buffer), stride_ptr, @ptrCast(&offset));
+            std.debug.print("Buffer: {*}, Stride: {}, Slot: {}\n", .{ self.buffer.?, self.stride, slot });
+
+            var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};
+            var stride_array = [_]u32{self.stride};
+            var offset_array = [_]u32{0};
+
+            device_context.IASetVertexBuffers(slot, 1, @ptrCast(&buffer_array[0]), @ptrCast(&stride_array[0]), @ptrCast(&offset_array[0]));
+
+            std.debug.print("IASetVertexBuffers completed\n", .{});
         }
     }
 

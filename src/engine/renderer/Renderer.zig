@@ -12,6 +12,8 @@ pub const Renderer = struct {
     device: Device,
     swap_chain: SwapChain,
     depth_texture: Texture,
+    render_target_view: *win32.ID3D11RenderTargetView,
+    back_buffer: *win32.ID3D11Texture2D,
     width: u32,
     height: u32,
 
@@ -20,11 +22,22 @@ pub const Renderer = struct {
         var device = try Device.init();
 
         // 初始化交换链
-        const swap_chain = try SwapChain.init(&device, hwnd, width, height);
+        var swap_chain = try SwapChain.init(&device, hwnd, width, height);
+        var back_buffer: *win32.ID3D11Texture2D = undefined;
+        const result = swap_chain.swap_chain.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&back_buffer)));
+        if (result != win32.S_OK) {
+            return error.FailedToGetBuffer;
+        }
+        var render_target_view: *win32.ID3D11RenderTargetView = undefined;
+        const back_buffer_resource: ?*win32.ID3D11Resource = @ptrCast(@alignCast(back_buffer));
+        if (device.d3d_device.CreateRenderTargetView(back_buffer_resource, null, &render_target_view) != win32.S_OK) {
+            return error.FailedToCreateRenderTargetView;
+        }
 
         // 创建深度模板纹理
         var depth_texture = Texture.init(.depth_stencil);
         try depth_texture.createDepthStencil(&device, width, height);
+        device.getDeviceContext().OMSetRenderTargets(1, @ptrCast(&render_target_view), depth_texture.getDepthStencilView());
 
         // 设置视口
         const viewport = win32.D3D11_VIEWPORT{
@@ -41,6 +54,8 @@ pub const Renderer = struct {
             .device = device,
             .swap_chain = swap_chain,
             .depth_texture = depth_texture,
+            .render_target_view = render_target_view,
+            .back_buffer = back_buffer,
             .width = width,
             .height = height,
         };
@@ -53,14 +68,12 @@ pub const Renderer = struct {
     }
 
     pub fn beginFrame(self: *Renderer, clear_color: [4]f32) void {
-        const device_context = self.device.getDeviceContext();
 
-        // 清除渲染目标和深度模板
-        self.swap_chain.clear(device_context, clear_color);
-        self.depth_texture.clearDepthStencil(device_context, true, true, 1.0, 0);
+        // 清除渲染目标
+        self.device.device_context.ClearRenderTargetView(self.render_target_view, @ptrCast(&clear_color));
 
-        // 设置渲染目标
-        self.swap_chain.clear(device_context, clear_color);
+        // 清除深度模板
+        self.device.device_context.ClearDepthStencilView(self.depth_texture.getDepthStencilView(), @intFromEnum(win32.D3D11_CLEAR_DEPTH) | @intFromEnum(win32.D3D11_CLEAR_STENCIL), 1.0, 0);
     }
 
     pub fn endFrame(self: *Renderer) void {
@@ -82,33 +95,30 @@ pub const Renderer = struct {
 
     // 绘制三角形列表
     pub fn drawTriangleList(self: *Renderer, vertex_count: u32, start_vertex_location: u32) void {
-        const device_context = self.device.getDeviceContext();
-        device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        device_context.Draw(vertex_count, start_vertex_location);
+        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        self.device.device_context.Draw(vertex_count, start_vertex_location);
     }
 
     // 绘制索引三角形列表
     pub fn drawIndexedTriangleList(self: *Renderer, index_count: u32, start_index_location: u32, base_vertex_location: i32) void {
-        const device_context = self.device.getDeviceContext();
-        device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        device_context.DrawIndexed(index_count, start_index_location, base_vertex_location);
+        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        self.device.device_context.DrawIndexed(index_count, start_index_location, base_vertex_location);
     }
 
-    // 绘制四边形（2D）
+    // 绘制四边形
     pub fn drawQuad(self: *Renderer, shader: *Shader, vertex_buffer: *Buffer) void {
-        const device_context = self.device.getDeviceContext();
 
         // 使用着色器
-        shader.use(device_context);
+        shader.use(self.device.device_context);
 
         // 绑定顶点缓冲区
-        vertex_buffer.bindVertexBuffer(device_context, 0);
+        vertex_buffer.bindVertexBuffer(self.device.device_context, 0);
 
         // 设置拓扑为三角形列表
-        device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         // 绘制两个三角形组成的四边形
-        device_context.Draw(6, 0);
+        self.device.device_context.Draw(6, 0);
     }
 
     // 设置光栅化器状态
