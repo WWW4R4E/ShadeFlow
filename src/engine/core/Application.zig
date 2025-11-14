@@ -78,7 +78,7 @@ pub const Application = struct {
 
         // 加载顶点着色器
         var vs_blob: ?*win32.ID3DBlob = null;
-        var hr = win32.D3DReadFileToBlob(win32.L("build/shaders/TriangleVS.cso"), // 文件路径（宽字符）
+        var hr = win32.D3DReadFileToBlob(win32.L("zig-out/shaders/TriangleVS.cso"), // 文件路径（宽字符）
             &vs_blob);
         if (hr != win32.S_OK) {
             std.debug.print("Failed to load vertex shader blob: 0x{X}\n", .{hr});
@@ -101,7 +101,7 @@ pub const Application = struct {
 
         // 加载像素着色器
         var ps_blob: ?*win32.ID3DBlob = null;
-        hr = win32.D3DReadFileToBlob(win32.L("build/shaders/TrianglePS.cso"), &ps_blob);
+        hr = win32.D3DReadFileToBlob(win32.L("zig-out/shaders/TrianglePS.cso"), &ps_blob);
         if (hr != win32.S_OK) {
             std.debug.print("Failed to load pixel shader blob: 0x{X}\n", .{hr});
             // 清理已分配的资源
@@ -199,13 +199,13 @@ pub const Application = struct {
             // 使用着色器
             self.shader.use(device_context);
 
-            self.vertex_buffer.bindVertexBuffer(device_context, 0);
+            // self.vertex_buffer.bindVertexBuffer(device_context, 0);
 
-            // 设置拓扑结构
-            device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            // // 设置拓扑结构
+            // device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-            // 绘制三角形
-            device_context.Draw(3, 0);
+            // // 绘制三角形
+            // device_context.Draw(3, 0);
 
             // 结束帧并呈现
             r.endFrame();
