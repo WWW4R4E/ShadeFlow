@@ -33,7 +33,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     var app = try MyApplication.init(allocator);
-    defer app.deinit();
+    defer {
+        app.deinit();
+        allocator.destroy(app);
+    }
 
     try app.run();
 }

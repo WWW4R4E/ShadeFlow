@@ -49,7 +49,6 @@ pub const Shader = struct {
             if (vertex_shader) |vs| _ = vs.IUnknown.Release();
             return error.InputLayoutCreationFailed;
         }
-        std.debug.print("Successfully created input layout\n", .{});
 
         // 释放旧资源
         if (self.vertex_shader) |vs| _ = vs.IUnknown.Release();
@@ -57,14 +56,11 @@ pub const Shader = struct {
 
         self.vertex_shader = vertex_shader;
         self.input_layout = input_layout;
-        std.debug.print("Vertex shader and input layout loaded successfully\n", .{});
     }
 
     pub fn loadPixelShader(self: *Shader, device: *Device, shader_data: []const u8) !void {
         var pixel_shader: ?*win32.ID3D11PixelShader = null;
         const hr = device.d3d_device.CreatePixelShader(shader_data.ptr, shader_data.len, null, @ptrCast(&pixel_shader));
-        std.debug.print("CreatePixelShader HRESULT: 0x{X}\n", .{@as(u32, @bitCast(hr))});
-        std.debug.print("Created pixel shader pointer: {*}\n", .{pixel_shader});
         if (hr != win32.S_OK) {
             std.debug.print("Failed to create pixel shader, HRESULT: 0x{X}\n", .{hr});
             var hresult_error: HResultError = undefined;
@@ -80,7 +76,6 @@ pub const Shader = struct {
         if (self.pixel_shader) |ps| _ = ps.IUnknown.Release();
 
         self.pixel_shader = pixel_shader;
-        std.debug.print("Pixel shader loaded successfully\n", .{});
     }
 
     pub fn loadShaderFromFile(self: *Shader, device: *Device, path: []const u8, shader_type: enum { vertex, pixel }, input_elements: ?[]const win32.D3D11_INPUT_ELEMENT_DESC) !void {
@@ -131,7 +126,6 @@ pub const Shader = struct {
 
         device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        std.debug.print("Shader use completed\n", .{});
     }
 
     pub fn deinit(self: *Shader) void {

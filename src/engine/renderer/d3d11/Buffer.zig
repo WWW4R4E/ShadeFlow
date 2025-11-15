@@ -150,8 +150,6 @@ pub const Buffer = struct {
         if (hr != win32.S_OK) {
             std.debug.print("Failed to create constant buffer: 0x{X}\n", .{hr});
             return HResultError.init(hr);
-        } else {
-            std.debug.print("Successfully created constant buffer: {?}\n", .{buffer});
         }
 
         // 释放旧缓冲区
@@ -188,15 +186,12 @@ pub const Buffer = struct {
 
     pub fn bindVertexBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .vertex and self.buffer != null) {
-            std.debug.print("Buffer: {*}, Stride: {}, Slot: {}\n", .{ self.buffer.?, self.stride, slot });
 
             var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};
             var stride_array = [_]u32{self.stride};
             var offset_array = [_]u32{0};
 
             device_context.IASetVertexBuffers(slot, 1, @ptrCast(&buffer_array[0]), @ptrCast(&stride_array[0]), @ptrCast(&offset_array[0]));
-
-            std.debug.print("IASetVertexBuffers completed\n", .{});
         }
     }
 

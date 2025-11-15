@@ -62,6 +62,12 @@ pub const Renderer = struct {
     }
 
     pub fn deinit(self: *Renderer) void {
+        // Release render target view
+        _ = self.render_target_view.IUnknown.Release();
+
+        // Release back buffer
+        _ = self.back_buffer.IUnknown.Release();
+
         self.depth_texture.deinit();
         self.swap_chain.deinit();
         self.device.deinit();

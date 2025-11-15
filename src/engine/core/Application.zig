@@ -202,7 +202,6 @@ pub const Application = struct {
             r.getDeviceContext().IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             // 执行绘制调用
             r.getDeviceContext().Draw(3, 0);
-            std.debug.print("Draw call completed\n", .{});
 
             // 结束帧并呈现
             r.endFrame();
@@ -231,7 +230,6 @@ pub const Application = struct {
 
     // 重新加载着色器到新的设备
     fn reloadShaders(self: *Application, device: *Device) !void {
-        std.debug.print("Reloading shaders for new device...\n", .{});
 
         // 重置着色器状态，但不释放资源（因为新设备需要重新创建）
         self.shader.vertex_shader = null;
