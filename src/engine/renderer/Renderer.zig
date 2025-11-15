@@ -233,4 +233,48 @@ pub const Renderer = struct {
 
         self.device.getDeviceContext().OMSetDepthStencilState(depth_stencil_state, 0);
     }
+
+    // 调整渲染器大小
+    pub fn resize(self: *Renderer, width: u32, height: u32) !void {
+        // 释放旧资源
+        _ = self.render_target_view.IUnknown.Release();
+        _ = self.back_buffer.IUnknown.Release();
+        self.depth_texture.deinit();
+
+        // 调整交换链大小
+        try self.swap_chain.resizeBuffers(width, height);
+
+        // 获取新的后台缓冲区
+        if (self.swap_chain.swap_chain.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&self.back_buffer))) != win32.S_OK) {
+            return error.FailedToGetBuffer;
+        }
+
+        // 创建新的渲染目标视图
+        const back_buffer_resource: ?*win32.ID3D11Resource = @ptrCast(@alignCast(self.back_buffer));
+        if (self.device.d3d_device.CreateRenderTargetView(back_buffer_resource, null, &self.render_target_view) != win32.S_OK) {
+            return error.FailedToCreateRenderTargetView;
+        }
+
+        // 创建新的深度模板纹理
+        self.depth_texture = Texture.init(.depth_stencil);
+        try self.depth_texture.createDepthStencil(&self.device, width, height);
+
+        // 设置渲染目标
+        self.device.getDeviceContext().OMSetRenderTargets(1, @ptrCast(&self.render_target_view), self.depth_texture.getDepthStencilView());
+
+        // 更新视口
+        const viewport = win32.D3D11_VIEWPORT{
+            .TopLeftX = 0.0,
+            .TopLeftY = 0.0,
+            .Width = @floatFromInt(width),
+            .Height = @floatFromInt(height),
+            .MinDepth = 0.0,
+            .MaxDepth = 1.0,
+        };
+        self.device.getDeviceContext().RSSetViewports(1, @ptrCast(&viewport));
+
+        // 更新尺寸
+        self.width = width;
+        self.height = height;
+    }
 };

@@ -30,7 +30,7 @@ pub const SwapChain = struct {
                 .Quality = 0,
             },
             .BufferUsage = win32.DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            .BufferCount = 1, // 使用单个缓冲区以简化操作
+            .BufferCount = 1, 
             .OutputWindow = hwnd,
             .Windowed = 1,
             .SwapEffect = win32.DXGI_SWAP_EFFECT_DISCARD,
@@ -71,5 +71,23 @@ pub const SwapChain = struct {
 
     pub fn present(self: *SwapChain) void {
         _ = self.swap_chain.Present(1, 0);
+    }
+
+    // 调整交换链缓冲区大小
+    pub fn resizeBuffers(self: *SwapChain, width: u32, height: u32) !void {
+        const hr = self.swap_chain.ResizeBuffers(
+            0, // 保留缓冲区数量
+            width,
+            height,
+            win32.DXGI_FORMAT_UNKNOWN, // 保留当前格式
+            0  // 无特殊标志
+        );
+
+        if (hr != win32.S_OK) {
+            return error.FailedToResizeBuffers;
+        }
+
+        self.width = width;
+        self.height = height;
     }
 };

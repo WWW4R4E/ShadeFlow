@@ -51,7 +51,7 @@ pub const Window = struct {
                 return 0;
             },
             win32.WM_SIZE => {
-                // 从窗口获取用户数据（Window实例指针）
+                // 从窗口获取用户数据
                 const window_ptr_value = win32.GetWindowLongPtrW(hwnd, win32.GWLP_USERDATA);
                 if (window_ptr_value != 0) {
                     // 将isize值转换回Window指针
@@ -66,7 +66,6 @@ pub const Window = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !*Window {
-        // 初始化静态数据（如果尚未初始化）
         if (!static_data_initialized) {
             try initStaticData();
         }
@@ -106,7 +105,7 @@ pub const Window = struct {
 
         // 为窗口分配内存
         const window_ptr = try allocator.create(Window);
-        
+
         window_ptr.* = Window{
             .allocator = allocator,
             .hwnd = hwnd,
@@ -115,8 +114,7 @@ pub const Window = struct {
             .size_changed = false,
         };
 
-        // 使用SetWindowLongPtr存储实例指针，需要正确转换指针为isize
-        _ = win32.SetWindowLongPtrW(hwnd, win32.GWLP_USERDATA, @as(isize, @bitCast(@intFromPtr(window_ptr))));
+        _ = win32.SetWindowLongPtrW(hwnd, win32.GWLP_USERDATA, @as(isize, @intCast(@intFromPtr(window_ptr))));
 
         return window_ptr;
     }
