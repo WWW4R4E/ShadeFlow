@@ -184,7 +184,7 @@ pub const Buffer = struct {
         device_context.Unmap(self.buffer.?, 0);
     }
 
-    pub fn bindVertexBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
+    pub fn bindVertexBuffer(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .vertex and self.buffer != null) {
 
             var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};

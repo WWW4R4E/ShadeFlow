@@ -105,7 +105,7 @@ pub const Shader = struct {
         }
     }
 
-    pub fn use(self: *Shader, device_context: *win32.ID3D11DeviceContext) void {
+    pub fn use(self: *const Shader, device_context: *win32.ID3D11DeviceContext) void {
         if (self.vertex_shader) |vs| {
             device_context.VSSetShader(vs, null, 0);
         } else {
@@ -125,7 +125,6 @@ pub const Shader = struct {
         }
 
         device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
     }
 
     pub fn deinit(self: *Shader) void {
