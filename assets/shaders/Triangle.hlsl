@@ -6,18 +6,31 @@ cbuffer constants: register(b0)
     float3 padding; // 保持16字节对齐
 };
 
-// 顶点着色器
-float4 mainVS(float3 pos : POSITION) : SV_Position
+struct VSOutput 
 {
-    return float4(pos, 1.0f);
+    float4 position : SV_Position;
+    float4 color : COLOR;
+};
+
+// 顶点着色器
+VSOutput mainVS(float3 pos : POSITION, float4 color : COLOR)
+{
+    VSOutput output;
+    output.position = float4(pos, 1.0f);
+    output.color = color;
+    return output;
 }
 
-// 像素着色器 - 使用时间值来动态改变颜色
-float4 mainPS() : SV_Target
+// 像素着色器 - 使用从顶点着色器插值过来的颜色
+float4 mainPS(VSOutput input) : SV_Target
 {
-    // 使用时间值创建动态颜色变化效果
-    float r = sin(time) * 0.5 + 0.5;
-    float g = sin(time + 2.094) * 0.5 + 0.5;  // 2.094 = 2*PI/3 (120度相位差)
-    float b = sin(time + 4.188) * 0.5 + 0.5;  // 4.188 = 4*PI/3 (240度相位差)
-    return float4(r, g, b, 1.0f);
+    return input.color;
 }
+// float4 mainPS() : SV_Target
+// {
+//     // 使用时间值创建动态颜色变化效果
+//     float r = sin(time) * 0.5 + 0.5;
+//     float g = sin(time + 2.094) * 0.5 + 0.5;  // 2.094 = 2*PI/3 (120度相位差)
+//     float b = sin(time + 4.188) * 0.5 + 0.5;  // 4.188 = 4*PI/3 (240度相位差)
+//     return float4(r, g, b, 1.0f);
+// }

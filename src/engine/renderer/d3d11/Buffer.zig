@@ -89,9 +89,10 @@ pub const Buffer = struct {
         self.count = @intCast(data.len / stride);
     }
 
-    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) HResultError!void {
+    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) !void {
         // 确保是索引缓冲区类型
         if (self.buffer_type != .index) {
+            std.debug.print("Invalid buffer type\n", .{});
             return error.InvalidBufferType;
         }
 
@@ -100,7 +101,7 @@ pub const Buffer = struct {
             .ByteWidth = @intCast(data.len * @sizeOf(u16)),
             .Usage = win32.D3D11_USAGE_DEFAULT,
             .BindFlags = win32.D3D11_BIND_INDEX_BUFFER,
-            .CPUAccessFlags = @bitCast(@as(win32.D3D11_CPU_ACCESS_FLAG, 0)),
+            .CPUAccessFlags = .{},
             .MiscFlags = @bitCast(@as(u32, 0)),
             .StructureByteStride = 0,
         };
@@ -114,9 +115,11 @@ pub const Buffer = struct {
 
         // 创建缓冲区
         var buffer: ?*win32.ID3D11Buffer = null;
-        const hr = device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, &buffer);
+        const hr = device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, @ptrCast(&buffer));
         if (hr != win32.S_OK) {
-            return HResultError.init(hr);
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr);
+            return error.HResultError;
         }
 
         // 释放旧缓冲区
@@ -125,7 +128,7 @@ pub const Buffer = struct {
         // 更新状态
         self.buffer = buffer;
         self.stride = @sizeOf(u16);
-        self.count = data.len;
+        self.count = @intCast(data.len);
     }
 
     pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) HResultError!void {
@@ -186,7 +189,6 @@ pub const Buffer = struct {
 
     pub fn bindVertexBuffer(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .vertex and self.buffer != null) {
-
             var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};
             var stride_array = [_]u32{self.stride};
             var offset_array = [_]u32{0};
@@ -195,13 +197,13 @@ pub const Buffer = struct {
         }
     }
 
-    pub fn bindIndexBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext) void {
+    pub fn bindIndexBuffer(self: *const Buffer, device_context: *win32.ID3D11DeviceContext) void {
         if (self.buffer_type == .index and self.buffer != null) {
             device_context.IASetIndexBuffer(self.buffer.?, win32.DXGI_FORMAT_R16_UINT, 0);
         }
     }
 
-    pub fn bindConstantBufferVS(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
+    pub fn bindConstantBufferVS(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .constant and self.buffer != null) {
             device_context.VSSetConstantBuffers(slot, 1, &self.buffer);
         }
