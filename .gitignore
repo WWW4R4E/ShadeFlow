@@ -2,3 +2,6 @@
 zig-out/*
 desktop.ini
 笔记/*
+*/.vs/*
+*/bin/*
+*/obj/*

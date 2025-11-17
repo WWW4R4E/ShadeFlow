@@ -18,16 +18,6 @@ pub fn main() !void {
 
     var engine = try Engine.init(allocator, size.width, size.height, Mainwindow.hwnd);
     
-    // 创建三角形顶点数据
-    const triangle_vertices = [_]Vertex{
-        Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 红色顶点
-        Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 绿色顶点
-        Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 蓝色顶点
-    };
-
-    // 创建默认测试三角形
-    try engine.addRenderObject(&triangle_vertices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso");
-
     // 创建矩形顶点数据（由两个三角形组成）
     const quad_vertices = [_]Vertex{
         Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },  // 左上 - 红色

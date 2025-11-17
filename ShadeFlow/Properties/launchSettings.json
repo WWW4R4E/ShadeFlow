@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ShadeFlow (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ShadeFlow (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
