@@ -11,35 +11,102 @@ const Texture = @import("d3d11/Texture.zig").Texture;
 pub const Renderer = struct {
     device: Device,
     swap_chain: SwapChain,
-    depth_texture: Texture,
+
+    // 渲染管线核心资源
     render_target_view: *win32.ID3D11RenderTargetView,
+    depth_texture: Texture,
+    // 保存 back_buffer 指针通常是个好习惯，虽然 RTV 也持有引用
     back_buffer: *win32.ID3D11Texture2D,
+
     width: u32,
     height: u32,
 
-    pub fn init(hwnd: win32.HWND, width: u32, height: u32) !Renderer {
-        // 初始化D3D设备
-        var device = try Device.init();
+    // ============================================================
+    // 初始化部分
+    // ============================================================
 
-        // 初始化交换链
-        var swap_chain = try SwapChain.init(&device, hwnd, width, height);
+    /// 针对 WinUI 3 (Composition) 的初始化入口
+    pub fn initForComposition(width: u32, height: u32) !Renderer {
+        // 1. 创建设备
+        var device = try Device.init(); // 假设 Device.init() 创建了 ID3D11Device 和 Context
+        errdefer device.deinit();
+
+        // 2. 创建 SwapChain (Composition 模式)
+        // 注意：这里调用的是我们上一轮修改过的 SwapChain.zig
+        var swap_chain = try SwapChain.initForComposition(&device, width, height);
+        errdefer swap_chain.deinit();
+
+        // 3. 创建其余管线资源 (RTV, Depth, Viewport)
+        // 我们先创建一个空的结构体架子，然后调用辅助函数填充资源
+        var renderer = Renderer{
+            .device = device,
+            .swap_chain = swap_chain,
+            .render_target_view = undefined,
+            .depth_texture = undefined,
+            .back_buffer = undefined,
+            .width = width,
+            .height = height,
+        };
+
+        // 这一步会填充 render_target_view, depth_texture 等
+        try renderer.createPipelineResources(width, height);
+
+        return renderer;
+    }
+
+    /// 针对 原生窗口 (Debug/Standalone) 的初始化入口
+    pub fn initForHwnd(hwnd: win32.HWND, width: u32, height: u32) !Renderer {
+        var device = try Device.init();
+        errdefer device.deinit();
+
+        // 使用 HWND 模式创建 SwapChain
+        var swap_chain = try SwapChain.initForHwnd(&device, hwnd, width, height);
+        errdefer swap_chain.deinit();
+
+        var renderer = Renderer{
+            .device = device,
+            .swap_chain = swap_chain,
+            .render_target_view = undefined,
+            .depth_texture = undefined,
+            .back_buffer = undefined,
+            .width = width,
+            .height = height,
+        };
+
+        try renderer.createPipelineResources(width, height);
+
+        return renderer;
+    }
+
+    // ============================================================
+    // 资源管理与 Resize
+    // ============================================================
+
+    /// 核心辅助函数：创建 RTV, Depth Buffer 和 Viewport
+    /// 无论是 Init 还是 Resize，本质上都是在做这件事
+    fn createPipelineResources(self: *Renderer, width: u32, height: u32) !void {
+        // 1. 从 SwapChain 获取 BackBuffer
+        // 注意：IDXGISwapChain1 也是用 GetBuffer，接口是一样的
         var back_buffer: *win32.ID3D11Texture2D = undefined;
-        const result = swap_chain.swap_chain.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&back_buffer)));
-        if (result != win32.S_OK) {
-            return error.FailedToGetBuffer;
-        }
-        var render_target_view: *win32.ID3D11RenderTargetView = undefined;
+        const swap_chain_base: *win32.IDXGISwapChain = @ptrCast(self.swap_chain.handle);
+        const hr_buffer = swap_chain_base.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&back_buffer)));
+        if (hr_buffer != win32.S_OK) return error.FailedToGetBuffer;
+        self.back_buffer = back_buffer;
+
+        // 2. 创建 Render Target View
         const back_buffer_resource: ?*win32.ID3D11Resource = @ptrCast(@alignCast(back_buffer));
-        if (device.d3d_device.CreateRenderTargetView(back_buffer_resource, null, &render_target_view) != win32.S_OK) {
+        if (self.device.d3d_device.CreateRenderTargetView(back_buffer_resource, null, &self.render_target_view) != win32.S_OK) {
             return error.FailedToCreateRenderTargetView;
         }
 
-        // 创建深度模板纹理
-        var depth_texture = Texture.init(.depth_stencil);
-        try depth_texture.createDepthStencil(&device, width, height);
-        device.getDeviceContext().OMSetRenderTargets(1, @ptrCast(&render_target_view), depth_texture.getDepthStencilView());
+        // 3. 创建 Depth Stencil Texture
+        self.depth_texture = Texture.init(.depth_stencil);
+        try self.depth_texture.createDepthStencil(&self.device, width, height);
 
-        // 设置视口
+        // 4. 绑定 Output Merger
+        self.device.getDeviceContext().OMSetRenderTargets(1, @ptrCast(&self.render_target_view), self.depth_texture.getDepthStencilView());
+
+        // 5. 设置 Viewport
         const viewport = win32.D3D11_VIEWPORT{
             .TopLeftX = 0.0,
             .TopLeftY = 0.0,
@@ -48,24 +115,13 @@ pub const Renderer = struct {
             .MinDepth = 0.0,
             .MaxDepth = 1.0,
         };
-        device.getDeviceContext().RSSetViewports(1, @ptrCast(&viewport));
-
-        return Renderer{
-            .device = device,
-            .swap_chain = swap_chain,
-            .depth_texture = depth_texture,
-            .render_target_view = render_target_view,
-            .back_buffer = back_buffer,
-            .width = width,
-            .height = height,
-        };
+        self.device.getDeviceContext().RSSetViewports(1, @ptrCast(&viewport));
     }
 
     pub fn deinit(self: *Renderer) void {
-        // Release render target view
-        _ = self.render_target_view.IUnknown.Release();
+        _ = self.device.getDeviceContext().ClearState();
 
-        // Release back buffer
+        _ = self.render_target_view.IUnknown.Release();
         _ = self.back_buffer.IUnknown.Release();
 
         self.depth_texture.deinit();
@@ -73,23 +129,37 @@ pub const Renderer = struct {
         self.device.deinit();
     }
 
-    pub fn beginFrame(self: *Renderer, clear_color: [4]f32) void {
+    // ============================================================
+    // Getters & Interop
+    // ============================================================
 
-        // 清除渲染目标
-        self.device.device_context.ClearRenderTargetView(self.render_target_view, @ptrCast(&clear_color));
-
-        // 清除深度模板
-        self.device.device_context.ClearDepthStencilView(self.depth_texture.getDepthStencilView(), @intFromEnum(win32.D3D11_CLEAR_DEPTH) | @intFromEnum(win32.D3D11_CLEAR_STENCIL), 1.0, 0);
-    }
-
-    pub fn endFrame(self: *Renderer) void {
-        // 呈现交换链
-        self.swap_chain.present();
+    /// 专门给 C# Interop 使用的方法
+    pub fn getSwapChainPointer(self: *Renderer) *anyopaque {
+        // 返回 IDXGISwapChain1 的原始指针
+        return @ptrCast(self.swap_chain.handle);
     }
 
     pub fn getDevice(self: *Renderer) *Device {
         return &self.device;
     }
+
+    // ============================================================
+    // 渲染逻辑 (保持不变或微调)
+    // ============================================================
+
+    pub fn beginFrame(self: *Renderer, clear_color: [4]f32) void {
+        self.device.device_context.ClearRenderTargetView(self.render_target_view, @ptrCast(&clear_color));
+        self.device.device_context.ClearDepthStencilView(self.depth_texture.getDepthStencilView(), @intFromEnum(win32.D3D11_CLEAR_DEPTH) | @intFromEnum(win32.D3D11_CLEAR_STENCIL), 1.0, 0);
+        self.device.device_context.OMSetRenderTargets(1, @ptrCast(&self.render_target_view), self.depth_texture.getDepthStencilView());
+        // 渲染普通对象
+    }
+
+    pub fn endFrame(self: *Renderer) void {
+        self.swap_chain.present();
+    }
+
+    // ... drawTriangleList, drawQuad, setRasterizerState 等方法保持不变 ...
+    // 这些方法与 SwapChain 无关，只与 Context 有关，可以直接复用
 
     pub fn getSwapChain(self: *Renderer) *SwapChain {
         return &self.swap_chain;
@@ -245,7 +315,8 @@ pub const Renderer = struct {
         try self.swap_chain.resizeBuffers(width, height);
 
         // 获取新的后台缓冲区
-        if (self.swap_chain.swap_chain.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&self.back_buffer))) != win32.S_OK) {
+        const swap_chain_base: *win32.IDXGISwapChain = @ptrCast(self.swap_chain.handle);
+        if (swap_chain_base.GetBuffer(0, win32.IID_ID3D11Texture2D, @as(**anyopaque, @ptrCast(&self.back_buffer))) != win32.S_OK) {
             return error.FailedToGetBuffer;
         }
 

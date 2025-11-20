@@ -28,43 +28,60 @@ const IndexedRenderObject = struct {
 };
 
 pub const Engine = struct {
-    hwnd: win32.HWND,
+    hwnd: ?win32.HWND,
     allocator: std.mem.Allocator,
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
-    indexed_render_objects: std.ArrayList(IndexedRenderObject), // 新增索引渲染对象列表
+    indexed_render_objects: std.ArrayList(IndexedRenderObject),
     shader_manager: ShaderManager,
     size_changed: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, width: u32, height: u32, hwnd: win32.HWND) !*Engine {
-        var renderer: ?Renderer = null;
+    pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
+        // 1. 调用 Renderer 的 Composition 初始化
+        var renderer = try Renderer.initForComposition(width, height);
+        errdefer renderer.deinit();
 
-        std.debug.print("Window size: {}x{}\n", .{ width, height });
-
-        // 创建渲染器
-        renderer = Renderer.init(hwnd, width, height) catch |err| {
-            std.debug.print("Failed to create renderer: {}\n", .{err});
-            return err;
-        };
-
-        // 初始化着色器管理器
-        const shader_manager = ShaderManager.init(allocator, renderer.?.getDevice());
+        const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
             std.debug.print("Failed to allocate engine: {}\n", .{err});
-            if (renderer) |*r| r.deinit();
+            renderer.deinit();
+            return err;
+        };
+        engine.* = Engine{
+            .allocator = allocator,
+            .hwnd = null,
+            .renderer = renderer,
+            .render_objects = .empty,
+            .indexed_render_objects = .empty, // 初始化索引渲染对象列表
+            .shader_manager = shader_manager,
+        };
+        return engine;
+    }
+
+    // -----------------------------------------------------------
+    // 场景 B: 给 Native Zig (Debugging) 用的初始化
+    // -----------------------------------------------------------
+    pub fn initForHwnd(allocator: std.mem.Allocator, hwnd: win32.HWND, width: u32, height: u32) !*Engine {
+        // 1. 调用 Renderer 的 HWND 初始化
+        var renderer = try Renderer.initForHwnd(hwnd, width, height);
+        errdefer renderer.deinit();
+
+        const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
+
+        const engine = allocator.create(Engine) catch |err| {
+            std.debug.print("Failed to allocate engine: {}\n", .{err});
             return err;
         };
 
         engine.* = Engine{
             .allocator = allocator,
             .hwnd = hwnd,
-            .renderer = renderer.?,
+            .renderer = renderer,
             .render_objects = .empty,
             .indexed_render_objects = .empty, // 初始化索引渲染对象列表
             .shader_manager = shader_manager,
         };
-
         return engine;
     }
 
@@ -177,7 +194,7 @@ pub const Engine = struct {
             render_object.shader.deinit();
         }
         self.render_objects.clearAndFree(self.allocator);
-        
+
         // 清除索引渲染对象
         for (self.indexed_render_objects.items) |*indexed_render_object| {
             indexed_render_object.vertex_buffer.deinit();
@@ -190,13 +207,12 @@ pub const Engine = struct {
     pub fn deinit(self: *Engine) void {
         self.clearRenderObjects();
         self.render_objects.deinit(self.allocator);
-        self.indexed_render_objects.deinit(self.allocator); // 释放索引渲染对象列表
+        self.indexed_render_objects.deinit(self.allocator);
         self.shader_manager.deinit();
 
         if (self.renderer) |*r| {
             r.deinit();
         }
-        self.allocator.destroy(self);
     }
 
     pub fn run(self: *Engine) !void {
@@ -229,11 +245,10 @@ pub const Engine = struct {
         return true;
     }
 
-    fn render(self: *Engine) void {
+    pub fn render(self: *Engine) void {
         if (self.renderer) |*r| {
-            r.beginFrame([4]f32{ 0.2, 0.7, 0.3, 1.0 });
+            r.beginFrame([4]f32{ 0.2, 0.2, 0.3, 1.0 });
 
-            // 渲染普通对象
             for (self.render_objects.items) |render_object| {
                 // 设置渲染状态
                 render_object.shader.use(r.getDeviceContext());
@@ -243,9 +258,11 @@ pub const Engine = struct {
                 // 执行绘制调用
                 r.getDeviceContext().Draw(render_object.vertex_buffer.count, 0);
             }
-            
+
             // 渲染索引对象
-            for (self.indexed_render_objects.items) |indexed_render_object| {
+            std.debug.print("Rendering {} indexed objects\n", .{self.indexed_render_objects.items.len});
+            for (self.indexed_render_objects.items, 0..) |indexed_render_object, i| {
+                std.debug.print("Rendering indexed object {}\n", .{i});
                 // 设置渲染状态
                 indexed_render_object.shader.use(r.getDeviceContext());
                 // 绑定缓冲区
@@ -254,6 +271,7 @@ pub const Engine = struct {
                 // 设置图元拓扑为三角形列表
                 r.getDeviceContext().IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 // 执行索引绘制调用
+                std.debug.print("Drawing {} indices\n", .{indexed_render_object.index_count});
                 r.getDeviceContext().DrawIndexed(indexed_render_object.index_count, 0, 0);
             }
 
@@ -261,24 +279,18 @@ pub const Engine = struct {
             r.endFrame();
         }
     }
-
     // 处理窗口大小变化
     fn handleResize(self: *Engine) !void {
-        // 暂时不需要处理窗口大小变化
+        // 如果有hwnd，使用传统方法获取窗口大小
+        // 对于外部swapchain的情况，需要外部调用方通过其他方式调整渲染器大小
         _ = self;
-        // if (self.renderer) |*r| {
-        //     // 获取当前窗口客户区大小
-        //     var rect: win32.RECT = undefined;
-        //     if (win32.GetClientRect(self.hwnd, &rect) == 0) {
-        //         return error.FailedToGetClientRect;
-        //     }
+    }
 
-        //     const width = @as(u32, @intCast(rect.right - rect.left));
-        //     const height = @as(u32, @intCast(rect.bottom - rect.top));
-
-        //     // 重新设置渲染器大小
-        //     try r.resize(width, height);
-        // }
+    /// 手动调整渲染器大小（用于外部swapchain或需要精确控制大小的场景）
+    pub fn resizeRenderer(self: *Engine, width: u32, height: u32) !void {
+        if (self.renderer) |*r| {
+            try r.resize(width, height);
+        }
     }
 
     // 重新加载着色器到新的设备

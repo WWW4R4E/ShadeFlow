@@ -1,0 +1,93 @@
+<Page
+    x:Class="ShadeFlow.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:ShadeFlow.Controls"
+    xmlns:viewmodels="using:ShadeFlow.ViewModels"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    SizeChanged="Page_SizeChanged">
+    
+    <Page.DataContext>
+        <viewmodels:HomePageViewModel />
+    </Page.DataContext>
+    
+    <Grid x:Name="RootGrid">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="LeftColumn" Width="*" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition x:Name="RightColumn" Width="350" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition x:Name="TopRow" Height="*" />
+                    <RowDefinition Height="6" />
+                    <RowDefinition x:Name="BottomRow" Height="*" />
+                </Grid.RowDefinitions>
+
+                <controls:SwapChainControl x:Name="renderPreview"
+                                          Grid.Row="0"
+                                          BorderThickness="1"
+                                          BorderBrush="{ThemeResource ButtonBackground}"
+                                          Margin="12"
+                                          ViewModel="{Binding}" />
+                
+                <Grid Background="{ThemeResource CardStrokeColorDefault}"
+                      Grid.Row="1">
+                    <Border x:Name="HorizontalVisualLine"
+                            Height="6"
+                            Width="120"
+                            Background="{ThemeResource TextFillColorTertiaryBrush}"
+                            CornerRadius="5"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                </Grid>
+                
+                <Grid Grid.Row="2" x:Name="nodeEditor"
+                      Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" />
+            </Grid>
+            
+            <Grid Background="{ThemeResource CardStrokeColorDefault}"
+                  Grid.Column="1">
+                <Border x:Name="VerticalVisualLine"
+                        Width="6"
+                        Height="120"
+                        Background="{ThemeResource TextFillColorTertiaryBrush}"
+                        CornerRadius="5"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+            </Grid>
+            
+            <Grid Grid.Column="2" x:Name="propertyPanel"
+                  Background="{ThemeResource CardBackgroundFillColorDefault}" />
+        </Grid>
+        
+        <Grid x:Name="HorizontalHoverZone"
+              Width="400"
+              Height="100"
+              Background="Transparent"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              PointerEntered="HorizontalHoverZone_PointerEntered"
+              PointerExited="HorizontalHoverZone_PointerExited"
+              PointerMoved="HorizontalHoverZone_PointerMoved_Drag"
+              PointerPressed="HorizontalHoverZone_PointerPressed"
+              PointerReleased="HorizontalHoverZone_PointerReleased" />
+              
+        <Grid x:Name="VerticalHoverZone"
+              Width="100"
+              Height="400"
+              Background="Transparent"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Top"
+              PointerEntered="VerticalHoverZone_PointerEntered"
+              PointerExited="VerticalHoverZone_PointerExited"
+              PointerMoved="VerticalHoverZone_PointerMoved_Drag"
+              PointerPressed="VerticalHoverZone_PointerPressed"
+              PointerReleased="VerticalHoverZone_PointerReleased" />
+    </Grid>
+</Page>
