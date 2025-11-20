@@ -144,7 +144,6 @@ pub const Engine = struct {
 
         // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
         const vertex_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, vertex_shader_path);
-        defer self.allocator.free(vertex_shader_wide);
 
         // 加载顶点着色器
         var vs_blob: ?*win32.ID3DBlob = null;

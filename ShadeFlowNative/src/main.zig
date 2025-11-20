@@ -36,9 +36,19 @@ pub fn main() !void {
         0, 2, 3, // 第二个三角形
     };
 
-    // 添加矩形对象
-    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "C:\\Users\\123\\Desktop\\Zig_Note\\dx11_zig\\zig-out\\shaders\\TriangleVS.cso", "C:\\Users\\123\\Desktop\\Zig_Note\\dx11_zig\\zig-out\\shaders\\TrianglePS.cso");
+    // 获取应用所在目录
+    const exe_path = try std.fs.selfExePathAlloc(allocator);
+    defer allocator.free(exe_path);
+    const app_dir = std.fs.path.dirname(exe_path).?;
 
+    // 构建着色器路径
+    const vs_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ app_dir, "\\..\\shaders\\TriangleVS.cso" });
+    defer allocator.free(vs_path);
+    const ps_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ app_dir, "\\..\\shaders\\TrianglePS.cso" });
+    defer allocator.free(ps_path);
+    std.debug.print("vs_path: {s}\n", .{vs_path});
+    // 添加矩形对象
+    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, vs_path, ps_path);
 
     try engine.run();
 }

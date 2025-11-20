@@ -1,11 +1,11 @@
 @echo off
 
-set OUT=zig-out\shaders
+set OUT=ShadeFlowNative\zig-out\shaders
 if not exist %OUT% mkdir %OUT%
 
 echo Using fxc.exe to compile shaders
 echo Compiling Triangle Vertex Shader...
-"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T vs_5_0 /E mainVS /Fo %OUT%\TriangleVS.cso assets\shaders\Triangle.hlsl
+"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T vs_5_0 /E mainVS /Fo %OUT%\TriangleVS.cso ShadeFlowNative\assets\shaders\Triangle.hlsl
 if %ERRORLEVEL% NEQ 0 (
     echo Vertex shader compilation failed.
     echo Please check if shader files exist and contain valid HLSL code.
@@ -13,7 +13,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo Compiling Triangle Pixel Shader...
-"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T ps_5_0 /E mainPS /Fo %OUT%\TrianglePS.cso assets\shaders\Triangle.hlsl
+"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T ps_5_0 /E mainPS /Fo %OUT%\TrianglePS.cso ShadeFlowNative\assets\shaders\Triangle.hlsl
 if %ERRORLEVEL% NEQ 0 (
     echo Pixel shader compilation failed.
     echo Please check if shader files exist and contain valid HLSL code.
@@ -21,7 +21,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo Compiling Cube Vertex Shader...
-"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T vs_5_0 /E mainVS /Fo %OUT%\CubeVS.cso assets\shaders\Cube.hlsl
+"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T vs_5_0 /E mainVS /Fo %OUT%\CubeVS.cso ShadeFlowNative\assets\shaders\Cube.hlsl
 if %ERRORLEVEL% NEQ 0 (
     echo Vertex shader compilation failed.
     echo Please check if shader files exist and contain valid HLSL code.
@@ -29,7 +29,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo Compiling Cube Pixel Shader...
-"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T ps_5_0 /E mainPS /Fo %OUT%\CubePS.cso assets\shaders\Cube.hlsl
+"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe" /T ps_5_0 /E mainPS /Fo %OUT%\CubePS.cso ShadeFlowNative\assets\shaders\Cube.hlsl
 if %ERRORLEVEL% NEQ 0 (
     echo Pixel shader compilation failed.
     echo Please check if shader files exist and contain valid HLSL code.

@@ -1,5 +1,5 @@
-.zig-cache/*
-zig-out/*
+*/.zig-cache/*
+*/zig-out/*
 desktop.ini
 笔记/*
 */.vs/*

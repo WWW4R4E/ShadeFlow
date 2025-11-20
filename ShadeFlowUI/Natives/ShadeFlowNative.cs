@@ -32,7 +32,7 @@ namespace ShadeFlow.Natives
         /// <summary>
         /// Zig库的DLL名称
         /// </summary>
-        private const string DllName = "C:\\Users\\123\\Desktop\\Zig_Note\\dx11_zig\\zig-out\\bin\\ShadeFlowNative.dll";
+        private const string DllName = "ShadeFlowNative.dll";
 
         /// <summary>
         /// 表示一个3D顶点（位置和颜色）
