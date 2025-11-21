@@ -4,7 +4,7 @@ const win32 = @import("win32").everything;
 
 const Engine = @import("engine/core/Engine.zig").Engine;
 const Vertex = @import("engine/core/Engine.zig").Vertex;
-const Window = @import("engine/core/Window.zig").Window;
+const Window = @import("engine/optional/Window.zig").Window;
 const Renderer = @import("engine/renderer/Renderer.zig").Renderer;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};

@@ -53,8 +53,33 @@ namespace ShadeFlow.ViewModels
                 }
 
                 // 添加默认渲染对象
-                string vertexShaderPath = "G:\\ShadeFlow\\ShadeFlowNative\\zig-out\\shaders\\TriangleVS.cso";
-                string pixelShaderPath = "G:\\ShadeFlow\\ShadeFlowNative\\zig-out\\shaders\\TrianglePS.cso";
+                // 简单探测项目根目录
+                string projectRoot = null;
+                string currentDir = System.AppContext.BaseDirectory;
+                
+                // 向上查找包含ShadeFlowNative和ShadeFlowUI的目录
+                while (!string.IsNullOrEmpty(currentDir))
+                {
+                    if (System.IO.Directory.Exists(System.IO.Path.Combine(currentDir, "ShadeFlowNative")) &&
+                        System.IO.Directory.Exists(System.IO.Path.Combine(currentDir, "ShadeFlowUI")))
+                    {
+                        projectRoot = currentDir;
+                        break;
+                    }
+                    
+                    var parent = System.IO.Directory.GetParent(currentDir);
+                    if (parent == null) break;
+                    currentDir = parent.FullName;
+                }
+                
+                if (projectRoot == null)
+                {
+                    // 如果没找到，使用当前目录作为回退
+                    projectRoot = System.AppContext.BaseDirectory;
+                }
+                
+                string vertexShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TriangleVS.cso");
+                string pixelShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TrianglePS.cso");
 
                 if (!ShadeFlowNative.ShadeFlow_AddTriangleObject(vertexShaderPath, pixelShaderPath))
                 {
@@ -150,8 +175,33 @@ namespace ShadeFlow.ViewModels
                 }
 
                 // 添加默认渲染对象
-                string vertexShaderPath = "D:\\ShadeFlow\\ShadeFlowNative\\zig-out\\shaders\\TriangleVS.cso";
-                string pixelShaderPath = "D:\\ShadeFlow\\ShadeFlowNative\\zig-out\\shaders\\TrianglePS.cso";
+                // 简单探测项目根目录
+                string projectRoot = null;
+                string currentDir = System.AppContext.BaseDirectory;
+                
+                // 向上查找包含ShadeFlowNative和ShadeFlowUI的目录
+                while (!string.IsNullOrEmpty(currentDir))
+                {
+                    if (System.IO.Directory.Exists(System.IO.Path.Combine(currentDir, "ShadeFlowNative")) &&
+                        System.IO.Directory.Exists(System.IO.Path.Combine(currentDir, "ShadeFlowUI")))
+                    {
+                        projectRoot = currentDir;
+                        break;
+                    }
+                    
+                    var parent = System.IO.Directory.GetParent(currentDir);
+                    if (parent == null) break;
+                    currentDir = parent.FullName;
+                }
+                
+                if (projectRoot == null)
+                {
+                    // 如果没找到，使用当前目录作为回退
+                    projectRoot = System.AppContext.BaseDirectory;
+                }
+                
+                string vertexShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TriangleVS.cso");
+                string pixelShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TrianglePS.cso");
 
                 if (!ShadeFlowNative.ShadeFlow_AddTriangleObject(vertexShaderPath, pixelShaderPath))
                 {

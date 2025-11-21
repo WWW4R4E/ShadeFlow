@@ -3,7 +3,7 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 const L = win32.L;
 
-const Input = @import("Input.zig").Input;
+const Input = @import("optional/Input.zig").Input;
 
 pub const Window = struct {
     hwnd: win32.HWND,
