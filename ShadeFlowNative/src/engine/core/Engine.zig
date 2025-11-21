@@ -19,7 +19,6 @@ const RenderObject = struct {
     shader: Shader,
 };
 
-// 修改索引渲染对象结构体，直接包含缓冲区而不是Mesh
 const IndexedRenderObject = struct {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -36,8 +35,8 @@ pub const Engine = struct {
     shader_manager: ShaderManager,
     size_changed: bool = false,
 
+    // 为 Composition 初始化引擎
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
-        // 1. 调用 Renderer 的 Composition 初始化
         var renderer = try Renderer.initForComposition(width, height);
         errdefer renderer.deinit();
 
@@ -53,17 +52,13 @@ pub const Engine = struct {
             .hwnd = null,
             .renderer = renderer,
             .render_objects = .empty,
-            .indexed_render_objects = .empty, // 初始化索引渲染对象列表
+            .indexed_render_objects = .empty,
             .shader_manager = shader_manager,
         };
         return engine;
     }
-
-    // -----------------------------------------------------------
-    // 场景 B: 给 Native Zig (Debugging) 用的初始化
-    // -----------------------------------------------------------
+    // 为 HWND 初始化引擎
     pub fn initForHwnd(allocator: std.mem.Allocator, hwnd: win32.HWND, width: u32, height: u32) !*Engine {
-        // 1. 调用 Renderer 的 HWND 初始化
         var renderer = try Renderer.initForHwnd(hwnd, width, height);
         errdefer renderer.deinit();
 
@@ -79,7 +74,7 @@ pub const Engine = struct {
             .hwnd = hwnd,
             .renderer = renderer,
             .render_objects = .empty,
-            .indexed_render_objects = .empty, // 初始化索引渲染对象列表
+            .indexed_render_objects = .empty,
             .shader_manager = shader_manager,
         };
         return engine;
@@ -144,7 +139,7 @@ pub const Engine = struct {
 
         // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
         const vertex_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, vertex_shader_path);
-
+        defer self.allocator.free(vertex_shader_wide);
         // 加载顶点着色器
         var vs_blob: ?*win32.ID3DBlob = null;
         var hr = win32.D3DReadFileToBlob(@ptrCast(vertex_shader_wide.ptr), &vs_blob);
@@ -259,9 +254,11 @@ pub const Engine = struct {
             }
 
             // 渲染索引对象
-            std.debug.print("Rendering {} indexed objects\n", .{self.indexed_render_objects.items.len});
-            for (self.indexed_render_objects.items, 0..) |indexed_render_object, i| {
-                std.debug.print("Rendering indexed object {}\n", .{i});
+
+            for (
+                self.indexed_render_objects.items,
+            ) |indexed_render_object| {
+
                 // 设置渲染状态
                 indexed_render_object.shader.use(r.getDeviceContext());
                 // 绑定缓冲区
@@ -270,7 +267,6 @@ pub const Engine = struct {
                 // 设置图元拓扑为三角形列表
                 r.getDeviceContext().IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 // 执行索引绘制调用
-                std.debug.print("Drawing {} indices\n", .{indexed_render_object.index_count});
                 r.getDeviceContext().DrawIndexed(indexed_render_object.index_count, 0, 0);
             }
 

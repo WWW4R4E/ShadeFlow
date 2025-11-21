@@ -1,9 +1,11 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using ShadeFlow.Natives;
 using ShadeFlow.ViewModels;
 using System;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using WinRT;
 
 namespace ShadeFlow.Controls
@@ -15,48 +17,43 @@ namespace ShadeFlow.Controls
 		private bool _isInitialized = false;
 		private bool _isDisposed = false;
 
-		public static readonly DependencyProperty ViewModelProperty =
-			DependencyProperty.Register(nameof(ViewModel), typeof(HomePageViewModel), typeof(SwapChainControl),
-				new PropertyMetadata(null, OnViewModelChanged));
-
-		public HomePageViewModel ViewModel
-		{
-			get => (HomePageViewModel)GetValue(ViewModelProperty);
-			set => SetValue(ViewModelProperty, value);
-		}
-
 		public SwapChainControl()
 		{
 			InitializeComponent();
 		}
 
-		private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+		// 添加支持x:Bind的命令属性
+		public ICommand InitializeRendererCommand
 		{
-			if (d is SwapChainControl control)
-			{
-				if (e.OldValue is HomePageViewModel oldViewModel)
-				{
-					oldViewModel.PropertyChanged -= control.OnViewModelPropertyChanged;
-				}
-
-				if (e.NewValue is HomePageViewModel newViewModel)
-				{
-					newViewModel.PropertyChanged += control.OnViewModelPropertyChanged;
-				}
-			}
+			get { return (ICommand)GetValue(InitializeRendererCommandProperty); }
+			set { SetValue(InitializeRendererCommandProperty, value); }
 		}
 
-		private void OnViewModelPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+		public static readonly DependencyProperty InitializeRendererCommandProperty =
+			DependencyProperty.Register(nameof(InitializeRendererCommand), typeof(ICommand), typeof(SwapChainControl),
+				new PropertyMetadata(null));
+
+		public ICommand ResizeRendererCommand
 		{
-			if (e.PropertyName == nameof(HomePageViewModel.RenderWidth) ||
-				e.PropertyName == nameof(HomePageViewModel.RenderHeight))
-			{
-				if (_isInitialized && !_isDisposed)
-				{
-					UpdateSwapChainSize();
-				}
-			}
+			get { return (ICommand)GetValue(ResizeRendererCommandProperty); }
+			set { SetValue(ResizeRendererCommandProperty, value); }
 		}
+
+		public static readonly DependencyProperty ResizeRendererCommandProperty =
+			DependencyProperty.Register(nameof(ResizeRendererCommand), typeof(ICommand), typeof(SwapChainControl),
+				new PropertyMetadata(null));
+
+
+
+		public ICommand CleanupRendererCommand
+		{
+			get { return (ICommand)GetValue(CleanupRendererCommandProperty); }
+			set { SetValue(CleanupRendererCommandProperty, value); }
+		}
+
+		public static readonly DependencyProperty CleanupRendererCommandProperty =
+			DependencyProperty.Register(nameof(CleanupRendererCommand), typeof(ICommand), typeof(SwapChainControl),
+				new PropertyMetadata(null));
 
 		private async void OnLoaded(object sender, RoutedEventArgs e)
 		{
@@ -78,7 +75,7 @@ namespace ShadeFlow.Controls
 
 		private async Task InitializeSwapChainAsync()
 		{
-			if (_isInitialized || ViewModel == null) return;
+			if (_isInitialized || InitializeRendererCommand == null) return;
 
 			try
 			{
@@ -99,14 +96,13 @@ namespace ShadeFlow.Controls
 					throw new Exception("Failed to obtain ISwapChainPanelNative interface");
 				}
 
-				// 使用ViewModel初始化渲染器
-				await ViewModel.InitializeRendererAsync(
-					(int)ActualWidth,
-					(int)ActualHeight,
-					XamlRoot.RasterizationScale);
+				if (InitializeRendererCommand.CanExecute(null))
+				{
+					InitializeRendererCommand.Execute(null);
+				}
 
 				// 获取交换链并设置
-				_swapChain = ViewModel.GetSwapChain();
+				_swapChain = ShadeFlowNative.ShadeFlow_GetSwapChain();
 				if (_swapChain != IntPtr.Zero)
 				{
 					_swapChainPanelNative.SetSwapChain(_swapChain);
@@ -114,7 +110,7 @@ namespace ShadeFlow.Controls
 				}
 				else
 				{
-					throw new Exception("Failed to get swap chain from ViewModel");
+					throw new Exception("Failed to get swap chain");
 				}
 			}
 			catch (Exception ex)
@@ -135,17 +131,21 @@ namespace ShadeFlow.Controls
 
 		private void UpdateSwapChainSize()
 		{
-			if (_isDisposed || ActualWidth <= 0 || ActualHeight <= 0) return;
+			if (_isDisposed || ActualWidth <= 0 || ActualHeight <= 0 || ResizeRendererCommand == null) return;
 
 			try
 			{
-				ViewModel?.ResizeRenderer((int)ActualWidth, (int)ActualHeight);
+				if (ResizeRendererCommand.CanExecute(null))
+				{
+					ResizeRendererCommand.Execute(null);
+				}
 			}
 			catch (Exception ex)
 			{
 				System.Diagnostics.Debug.WriteLine($"Error updating swap chain size: {ex.Message}");
 			}
 		}
+
 
 		private void Cleanup()
 		{
@@ -162,7 +162,10 @@ namespace ShadeFlow.Controls
 					_swapChainPanelNative = null;
 				}
 
-				ViewModel?.Cleanup();
+				if (CleanupRendererCommand?.CanExecute(null) == true)
+				{
+					CleanupRendererCommand.Execute(null);
+				}
 				_swapChain = IntPtr.Zero;
 
 				Loaded -= OnLoaded;

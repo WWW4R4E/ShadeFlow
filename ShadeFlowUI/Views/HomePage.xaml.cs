@@ -2,14 +2,17 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using ShadeFlow.ViewModels;
 using System;
 
-namespace ShadeFlow
+namespace ShadeFlow.Views
 {
 	public sealed partial class HomePage : Page
 	{
 		private bool _isHorizontalDragging = false;
 		private bool _isVerticalDragging = false;
+
+		public HomePageViewModel ViewModel { get; } = new HomePageViewModel();
 
 		public HomePage()
 		{
@@ -32,6 +35,7 @@ namespace ShadeFlow
 		private void Page_Loaded(object sender, RoutedEventArgs e)
 		{
 			UpdateHoverZones();
+			UpdateViewModelRenderSize();
 		}
 
 		private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -49,7 +53,7 @@ namespace ShadeFlow
 			double normalizedDist = Math.Min(1.0, distToCenter / maxDist);
 			double ratio = 1.0 - normalizedDist * normalizedDist;
 
-			double targetWidth = 120 + ratio * (350 - 120);
+			double targetWidth = 120 + ratio * (250 - 120);
 			HorizontalVisualLine.Width = targetWidth;
 			if (distToCenter <= 3)
 			{
@@ -70,7 +74,7 @@ namespace ShadeFlow
 				HorizontalHoverZone.CapturePointer(e.Pointer);
 				e.Handled = true;
 			}
-		}
+    }
 
 		private void HorizontalHoverZone_PointerReleased(object sender, PointerRoutedEventArgs e)
 		{
@@ -111,6 +115,9 @@ namespace ShadeFlow
 
 			TopRow.Height = new GridLength(Math.Max(minSize, top));
 			BottomRow.Height = new GridLength(Math.Max(minSize, bottom));
+
+			// 更新ViewModel的渲染尺寸
+			UpdateViewModelRenderSize();
 		}
 
 		private void VerticalHoverZone_PointerMoved(object sender, PointerRoutedEventArgs e)
@@ -126,7 +133,7 @@ namespace ShadeFlow
 			// 先快后慢：使用 ease-out 效果 → ratio = 1 - normalizedDist^2
 			double ratio = 1.0 - normalizedDist * normalizedDist;
 
-			double targetHeight = 120 + ratio * (380 - 120);
+			double targetHeight = 120 + ratio * (250 - 120);
 			VerticalVisualLine.Height = targetHeight;
 			if (distToCenter <= 3)
 			{
@@ -187,8 +194,26 @@ namespace ShadeFlow
 
 			LeftColumn.Width = new GridLength(Math.Max(minSize, left));
 			RightColumn.Width = new GridLength(Math.Max(minSize, right));
+
+			UpdateViewModelRenderSize();
 		}
 
+		private void UpdateViewModelRenderSize()
+		{
+			double renderWidth = renderPreview.ActualWidth;
+			double renderHeight = renderPreview.ActualHeight;
+
+			if (renderWidth > 0 && renderHeight > 0)
+			{
+				ViewModel.RenderWidth = (int)renderWidth;
+				ViewModel.RenderHeight = (int)renderHeight;
+
+				if (ViewModel.ResizeRendererCommand?.CanExecute(null) == true)
+				{
+					ViewModel.ResizeRendererCommand.Execute(null);
+				}
+			}
+		}
 		private void HorizontalHoverZone_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
 		{
 			if (_isHorizontalDragging)

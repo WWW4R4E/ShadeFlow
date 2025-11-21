@@ -46,7 +46,6 @@ pub fn main() !void {
     defer allocator.free(vs_path);
     const ps_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ app_dir, "\\..\\shaders\\TrianglePS.cso" });
     defer allocator.free(ps_path);
-    std.debug.print("vs_path: {s}\n", .{vs_path});
     // 添加矩形对象
     try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, vs_path, ps_path);
 
