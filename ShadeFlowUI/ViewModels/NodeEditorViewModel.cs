@@ -1,11 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI;
 using ShadeFlow.Controls;
 using ShadeFlow.Models;
-using ShadeFlow.Utils;
 using System;
 using System.Collections.ObjectModel;
-using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.UI;
 
@@ -20,32 +19,29 @@ namespace ShadeFlow.ViewModels
         public NodeEditor editor;
 
         #region ObservableProperty
-
         // 节点集合 - 用于NodeEditor的数据绑定
         [ObservableProperty]
         private ObservableCollection<NodeBase> _nodes = new ObservableCollection<NodeBase>();
-
+        
         [ObservableProperty]
         private ObservableCollection<Connection> _connections = new ObservableCollection<Connection>();
-
+        
         // 临时连接线的起点和终点
         [ObservableProperty]
         private Point _tempLineStart;
-
+        
         [ObservableProperty]
         private Point _tempLineEnd;
-
+        
         // 是否显示临时连接线
         [ObservableProperty]
         private bool _showTempLine = false;
-
         private Connection _existingConnection;
-
-        #endregion ObservableProperty
+        #endregion
 
         private NodeEditorViewModel()
         {
-            GenerateTestNodes();
+            GenerateTestNodes(); 
         }
 
         public static NodeEditorViewModel Instance => _instance;
@@ -57,7 +53,7 @@ namespace ShadeFlow.ViewModels
             int totalNodes = Nodes.Count;
             node.ZIndex = totalNodes;
 
-            foreach (var otherNode in Nodes)
+            foreach (var otherNode in Nodes) 
                 if (otherNode != node) otherNode.ZIndex--;
         }
 
@@ -67,7 +63,7 @@ namespace ShadeFlow.ViewModels
             TempLineStart = point;
             TempLineEnd = point;
             ShowTempLine = true;
-
+            
             Port closestPort = null;
             double closestDistance = double.MaxValue;
             const double SnapRange = 15.0;
@@ -76,9 +72,9 @@ namespace ShadeFlow.ViewModels
             {
                 foreach (var outputPort in node.OutputPorts)
                 {
-                    var distance = Math.Sqrt(Math.Pow(point.X - outputPort.Position.X, 2) +
+                    var distance = Math.Sqrt(Math.Pow(point.X - outputPort.Position.X, 2) + 
                                            Math.Pow(point.Y - outputPort.Position.Y, 2));
-
+                    
                     if (distance <= SnapRange && distance < closestDistance)
                     {
                         closestDistance = distance;
@@ -86,7 +82,7 @@ namespace ShadeFlow.ViewModels
                     }
                 }
             }
-
+            
             _sourcePort = closestPort;
         }
 
@@ -104,14 +100,14 @@ namespace ShadeFlow.ViewModels
                 {
                     if (inputPort.Connections.Count > 0)
                     {
-                        var distance = Math.Sqrt(Math.Pow(point.X - inputPort.Position.X, 2) +
+                        var distance = Math.Sqrt(Math.Pow(point.X - inputPort.Position.X, 2) + 
                                                Math.Pow(point.Y - inputPort.Position.Y, 2));
-
+                        
                         if (distance <= SnapRange && distance < closestDistance)
                         {
                             closestDistance = distance;
                             closestPort = inputPort;
-                            connectionToCancel = inputPort.Connections[0];
+                            connectionToCancel = inputPort.Connections[0]; 
                         }
                     }
                 }
@@ -120,17 +116,17 @@ namespace ShadeFlow.ViewModels
             if (closestPort != null && connectionToCancel != null)
             {
                 _existingConnection = connectionToCancel;
-
+                
                 TempLineStart = connectionToCancel.Source.Position;
                 TempLineEnd = point;
                 ShowTempLine = true;
-
+                
                 _sourcePort = connectionToCancel.Source;
-
+                
                 Connections.Remove(connectionToCancel);
                 connectionToCancel.Source.Connections.Remove(connectionToCancel);
                 connectionToCancel.Target.Connections.Remove(connectionToCancel);
-
+                
                 MoveConnect(point);
             }
         }
@@ -139,7 +135,7 @@ namespace ShadeFlow.ViewModels
         private void MoveConnect(Point point)
         {
             TempLineEnd = point;
-
+            
             Port closestPort = null;
             double closestDistance = double.MaxValue;
             const double SnapRange = 15.0;
@@ -151,7 +147,7 @@ namespace ShadeFlow.ViewModels
                     if (_sourcePort != null &&
                         (inputPort == _sourcePort ||
                          node.OutputPorts.Contains(_sourcePort))) continue;
-                    var distance = Math.Sqrt(Math.Pow(point.X - inputPort.Position.X, 2) +
+                    var distance = Math.Sqrt(Math.Pow(point.X - inputPort.Position.X, 2) + 
                                            Math.Pow(point.Y - inputPort.Position.Y, 2));
                     if (distance <= SnapRange && distance < closestDistance)
                     {
@@ -166,7 +162,7 @@ namespace ShadeFlow.ViewModels
                 TempLineEnd = closestPort.Position;
                 _targetPort = closestPort;
             }
-            else _targetPort = null;
+            else  _targetPort = null;
         }
 
         [RelayCommand]
@@ -179,58 +175,16 @@ namespace ShadeFlow.ViewModels
                     Source = _sourcePort,
                     Target = _targetPort
                 };
-
+                
                 Connections.Add(connection);
                 _sourcePort.Connections.Add(connection);
                 _targetPort.Connections.Add(connection);
             }
             ShowTempLine = false;
-
+            
             _sourcePort = null;
             _targetPort = null;
             _existingConnection = null;
-        }
-
-        [RelayCommand]
-        private async Task SaveProjectAsync()
-        {
-            try
-            {
-                await JsonSerializer.SaveToFileAsync(Nodes, Connections);
-                // 可以添加保存成功的提示
-            }
-            catch (Exception ex)
-            {
-                // 处理异常
-            }
-        }
-
-        [RelayCommand]
-        private async Task LoadProjectAsync()
-        {
-            try
-            {
-                var dataModel = await JsonSerializer.LoadFromFileAsync();
-                if (dataModel != null)
-                {
-                    Nodes.Clear();
-                    Connections.Clear();
-
-                    foreach (var node in dataModel.Nodes)
-                    {
-                        Nodes.Add(node);
-                    }
-
-                    foreach (var connection in dataModel.Connections)
-                    {
-                        Connections.Add(connection);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // 处理异常
-            }
         }
 
         /// <summary>
