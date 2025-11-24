@@ -1,3 +1,5 @@
+using ShadeFlow.Controls;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -12,6 +14,21 @@ namespace ShadeFlow.Models
         private double _width = 200;
         private double _height = 120;
         private bool _isSelected;
+        private int _zIndex;
+
+        public ObservableCollection<Port> InputPorts { get; } = new ObservableCollection<Port>();
+        public ObservableCollection<Port> OutputPorts { get; } = new ObservableCollection<Port>();
+        public ObservableCollection<Property> Properties { get; } = new ObservableCollection<Property>();
+        
+        public int ZIndex
+        {
+            get => _zIndex;
+            set
+            {
+                _zIndex = value;
+                OnPropertyChanged();
+            }
+        }
 
         public string Title
         {
@@ -90,6 +107,7 @@ namespace ShadeFlow.Models
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
+        public ShadeNode? Visual { get; set; }
 
         public void MoveTo(double x, double y)
         {

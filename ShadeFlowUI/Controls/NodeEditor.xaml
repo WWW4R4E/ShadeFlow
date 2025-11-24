@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    x:Class="ShadeFlow.Controls.NodeEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ShadeFlow.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:ShadeFlow.Models"
+    xmlns:viewmodels="using:ShadeFlow.ViewModels"
+    mc:Ignorable="d"
+    ZoomMode="Enabled"
+    x:Name="nodeEditorControl">
+    <Grid>
+        <!-- 连接线渲染层 -->
+        <ItemsControl ItemsSource="{x:Bind _viewModel.Connections, Mode=OneWay}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <Canvas />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:Connection">
+                    <local:ConnectionLine Connection="{Binding}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        
+        <!-- 临时连接线 -->
+        <Line X1="{x:Bind _viewModel.TempLineStart.X, Mode=OneWay}" 
+              Y1="{x:Bind _viewModel.TempLineStart.Y, Mode=OneWay}" 
+              X2="{x:Bind _viewModel.TempLineEnd.X, Mode=OneWay}" 
+              Y2="{x:Bind _viewModel.TempLineEnd.Y, Mode=OneWay}" 
+              Stroke="Red" 
+              StrokeThickness="2"
+              Visibility="{x:Bind _viewModel.ShowTempLine, Mode=OneWay}" />
+        
+        <!-- 节点渲染层 -->
+        <ItemsControl x:Name="ItemsControl"
+                      ItemsSource="{x:Bind _viewModel.Nodes, Mode=OneWay}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <Canvas x:Name="ContainCanvas" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:NodeBase">
+                    <local:ShadeNode Node="{Binding}"
+                                     BringNodeToFrontCommand="{Binding BringNodeToFrontCommand, ElementName=nodeEditorControl}"
+                                     ConnectStartCommand="{Binding ConnectStartCommand, ElementName=nodeEditorControl}"
+                                     ConnectMoveCommand="{Binding ConnectMoveCommand, ElementName=nodeEditorControl}"
+                                     ConnectEndCommand="{Binding ConnectEndCommand, ElementName=nodeEditorControl}"
+                                     CancelConnectCommand="{Binding CancelConnectCommand, ElementName=nodeEditorControl}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</ScrollView>

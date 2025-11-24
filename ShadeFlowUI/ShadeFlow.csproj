@@ -15,8 +15,6 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<None Remove="HomePage.xaml" />
-		<None Remove="Views\NodeEditor.xaml" />
-		<None Remove="Views\ShadeNode.xaml" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -66,12 +64,6 @@
 	  <None Update="ShadeFlowNative.dll">
 	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 	  </None>
-	  <Page Update="Views\ShadeNode.xaml">
-	    <Generator>MSBuild:Compile</Generator>
-	  </Page>
-	  <Page Update="Views\NodeEditor.xaml">
-	    <Generator>MSBuild:Compile</Generator>
-	  </Page>
 	</ItemGroup>
 
 	<!--
