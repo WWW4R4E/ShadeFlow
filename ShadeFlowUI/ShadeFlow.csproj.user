@@ -11,11 +11,5 @@
     <None Update="Package.appxmanifest">
       <SubType>Designer</SubType>
     </None>
-    <Page Update="Views\ShadeNode.xaml">
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Update="Views\NodeEditor.xaml">
-      <SubType>Designer</SubType>
-    </Page>
   </ItemGroup>
 </Project>

@@ -22,7 +22,6 @@ pub fn main() !void {
         allocator.destroy(engine);
     }
 
-    // 创建矩形顶点数据（由两个三角形组成）
     const quad_vertices = [_]Vertex{
         Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上 - 红色
         Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上 - 绿色
@@ -30,23 +29,20 @@ pub fn main() !void {
         Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下 - 黄色
     };
 
-    // 矩形索引数据（两个三角形）
     const quad_indices = [_]u16{
-        0, 1, 2, // 第一个三角形
-        0, 2, 3, // 第二个三角形
+        0, 1, 2, 
+        0, 2, 3, 
     };
 
-    // 获取应用所在目录
     const exe_path = try std.fs.selfExePathAlloc(allocator);
     defer allocator.free(exe_path);
     const app_dir = std.fs.path.dirname(exe_path).?;
 
-    // 构建着色器路径
     const vs_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ app_dir, "\\..\\shaders\\TriangleVS.cso" });
     defer allocator.free(vs_path);
     const ps_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ app_dir, "\\..\\shaders\\TrianglePS.cso" });
     defer allocator.free(ps_path);
-    // 添加矩形对象
+
     try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, vs_path, ps_path);
 
     try engine.run();

@@ -32,16 +32,11 @@ namespace ShadeFlow.Views
 			VerticalHoverZone.Margin = new Thickness(verticalX - VerticalHoverZone.Width / 2, verticalY, 0, 0);
 		}
 
-		private void Page_Loaded(object sender, RoutedEventArgs e)
-		{
-			UpdateHoverZones();
-			UpdateViewModelRenderSize();
-		}
-
 		private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
 		{
 			UpdateHoverZones();
-		}
+            UpdateViewModelRenderSize();
+        }
 
 		private void HorizontalHoverZone_PointerMoved(object sender, PointerRoutedEventArgs e)
 		{
@@ -205,15 +200,16 @@ namespace ShadeFlow.Views
 
 			if (renderWidth > 0 && renderHeight > 0)
 			{
-				ViewModel.RenderWidth = (int)renderWidth;
-				ViewModel.RenderHeight = (int)renderHeight;
+				ViewModel.RenderViewModel.RenderWidth = (int)renderWidth;
+				ViewModel.RenderViewModel.RenderHeight = (int)renderHeight;
 
-				if (ViewModel.ResizeRendererCommand?.CanExecute(null) == true)
+				if (ViewModel.RenderViewModel.ResizeRendererCommand?.CanExecute(null) == true)
 				{
-					ViewModel.ResizeRendererCommand.Execute(null);
+					ViewModel.RenderViewModel.ResizeRendererCommand.Execute(null);
 				}
 			}
 		}
+
 		private void HorizontalHoverZone_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
 		{
 			if (_isHorizontalDragging)

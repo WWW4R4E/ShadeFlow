@@ -22,7 +22,6 @@ namespace ShadeFlow.Controls
 			InitializeComponent();
 		}
 
-		// 添加支持x:Bind的命令属性
 		public ICommand InitializeRendererCommand
 		{
 			get { return (ICommand)GetValue(InitializeRendererCommandProperty); }

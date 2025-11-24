@@ -8,14 +8,9 @@
     xmlns:controls="using:ShadeFlow.Controls"
     xmlns:viewmodels="using:ShadeFlow.ViewModels"
     mc:Ignorable="d"
-    Loaded="Page_Loaded"
     SizeChanged="Page_SizeChanged">
 
-    <Page.DataContext>
-        <viewmodels:HomePageViewModel />
-    </Page.DataContext>
-
-    <Grid x:Name="RootGrid" Margin="16,8">
+    <Grid x:Name="RootGrid">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="*" />
@@ -49,7 +44,7 @@
                             VerticalAlignment="Center" />
                 </Grid>
 
-                <local:NodeEditor Grid.Row="2" x:Name="nodeEditor" ItemsSource="{x:Bind ViewModel.Nodes}" />
+                <controls:NodeEditor Grid.Row="2" x:Name="nodeEditor" ItemsSource="{x:Bind ViewModel.Nodes}" />
             </Grid>
 
             <Grid Background="{ThemeResource CardStrokeColorDefault}" HorizontalAlignment="Left"

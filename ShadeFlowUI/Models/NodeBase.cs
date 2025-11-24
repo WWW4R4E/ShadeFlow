@@ -1,102 +1,47 @@
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
+using ShadeFlow.Controls;
+using CommunityToolkit.Mvvm.ComponentModel;
+using System.Collections.ObjectModel;
 
 namespace ShadeFlow.Models
 {
-    public class NodeBase : INotifyPropertyChanged
+    public partial class NodeBase : ObservableObject
     {
+        public ObservableCollection<Port> InputPorts { get; } = new ObservableCollection<Port>();
+        public ObservableCollection<Port> OutputPorts { get; } = new ObservableCollection<Port>();
+        public ObservableCollection<Property> Properties { get; } = new ObservableCollection<Property>();
+        
+        [ObservableProperty]
+        private int _zIndex;
+        
+        [ObservableProperty]
         private string _title = "Node";
+        
+        [ObservableProperty]
         private string _description = "";
+        
+        [ObservableProperty]
         private double _x;
+        
+        [ObservableProperty]
         private double _y;
+        
+        [ObservableProperty]
         private double _width = 200;
+        
+        [ObservableProperty]
         private double _height = 120;
+        
+        [ObservableProperty]
         private bool _isSelected;
-
-        public string Title
-        {
-            get => _title;
-            set
-            {
-                _title = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public string Description
-        {
-            get => _description;
-            set
-            {
-                _description = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public double X
-        {
-            get => _x;
-            set
-            {
-                _x = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public double Y
-        {
-            get => _y;
-            set
-            {
-                _y = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public double Width
-        {
-            get => _width;
-            set
-            {
-                _width = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public double Height
-        {
-            get => _height;
-            set
-            {
-                _height = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public bool IsSelected
-        {
-            get => _isSelected;
-            set
-            {
-                _isSelected = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-
-
+        
+        public ShadeNode? Visual { get; set; }
+        
         public void MoveTo(double x, double y)
         {
             X = x;
             Y = y;
         }
-
+        
         public void MoveBy(double deltaX, double deltaY)
         {
             X += deltaX;
