@@ -24,7 +24,7 @@ pub const Buffer = struct {
             .buffer_type = buffer_type,
             .stride = 0,
             .count = 0,
-        };
+        };           
     }
 
     pub fn createVertexBuffer(self: *Buffer, device: *Device, data: []const u8, stride: u32, usage: enum { default, dynamic, immutable }) !void {
@@ -210,13 +210,15 @@ pub const Buffer = struct {
 
     pub fn bindConstantBufferVS(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .constant and self.buffer != null) {
-            device_context.VSSetConstantBuffers(slot, 1, &self.buffer);
+            var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};
+            device_context.VSSetConstantBuffers(slot, 1, @ptrCast(&buffer_array[0]));
         }
     }
 
     pub fn bindConstantBufferPS(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .constant and self.buffer != null) {
-            device_context.PSSetConstantBuffers(slot, 1, @ptrCast(&self.buffer.?));
+            var buffer_array = [_]?*win32.ID3D11Buffer{self.buffer};
+            device_context.PSSetConstantBuffers(slot, 1, @ptrCast(&buffer_array[0]));
         }
     }
 
