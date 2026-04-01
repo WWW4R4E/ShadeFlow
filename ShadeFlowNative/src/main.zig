@@ -23,6 +23,13 @@ pub fn main() !void {
     }
 
     // const quad_vertices = [_]Vertex{
+    //     Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上 - 红色
+    //     Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上 - 绿色
+    //     Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下 - 蓝色
+    //     Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下 - 黄色
+    // };
+
+    // const quad_vertices = [_]Vertex{
     //     Vertex{
     //         .position = [3]f32{ -0.5, 0.5, 0.0 },
     //     },

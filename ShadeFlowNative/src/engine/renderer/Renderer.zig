@@ -28,7 +28,7 @@ pub const Renderer = struct {
     /// 针对 WinUI 3 (Composition) 的初始化入口
     pub fn initForComposition(width: u32, height: u32) !Renderer {
         // 1. 创建设备
-        var device = try Device.init(); // 假设 Device.init() 创建了 ID3D11Device 和 Context
+        var device = try Device.init();
         errdefer device.deinit();
 
         // 2. 创建 SwapChain (Composition 模式)

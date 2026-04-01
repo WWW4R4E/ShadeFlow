@@ -10,7 +10,8 @@ namespace ShadeFlow.Views
 	public sealed partial class HomePage : Page
 	{
 		private bool _isHorizontalDragging = false;
-		private bool _isVerticalDragging = false;
+		private bool _isVertical1Dragging = false;
+		private bool _isVertical2Dragging = false;
 
 		public HomePageViewModel ViewModel { get; } = new HomePageViewModel();
 
@@ -24,12 +25,15 @@ namespace ShadeFlow.Views
 			if (RootGrid.ActualWidth == 0 || RootGrid.ActualHeight == 0) return;
 
 			double horizontalY = TopRow.ActualHeight + HorizontalVisualLine.ActualHeight / 2;
-			double horizontalX = (RootGrid.ActualWidth - HorizontalHoverZone.Width - RightColumn.ActualWidth) / 2;
-			HorizontalHoverZone.Margin = new Thickness(horizontalX, horizontalY - HorizontalHoverZone.Height / 2, 0, 0);
+			HorizontalHoverZone.Margin = new Thickness(0, horizontalY - HorizontalHoverZone.Height / 2, 0, 0);
 
-			double verticalX = LeftColumn.ActualWidth + VerticalVisualLine.ActualWidth / 2;
-			double verticalY = (RootGrid.ActualHeight - VerticalHoverZone.Height) / 2;
-			VerticalHoverZone.Margin = new Thickness(verticalX - VerticalHoverZone.Width / 2, verticalY, 0, 0);
+			double vertical1X = LeftColumn.ActualWidth + VerticalVisualLine1.ActualWidth / 2 - VerticalHoverZone1.Width / 2;
+			double vertical1Y = (RootGrid.ActualHeight - VerticalHoverZone1.Height) / 2;
+			VerticalHoverZone1.Margin = new Thickness(vertical1X, vertical1Y, 0, 0);
+
+			double vertical2X = RightColumn.ActualWidth + VerticalVisualLine1.ActualWidth / 2 - VerticalHoverZone2.ActualWidth / 2;
+      double vertical2Y = (RootGrid.ActualHeight - VerticalHoverZone2.Height) / 2;
+			VerticalHoverZone2.Margin = new Thickness(0, 0,vertical2X, vertical2Y);
 		}
 
 		private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -115,79 +119,184 @@ namespace ShadeFlow.Views
 			UpdateViewModelRenderSize();
 		}
 
-		private void VerticalHoverZone_PointerMoved(object sender, PointerRoutedEventArgs e)
+		private void VerticalHoverZone2_PointerMoved(object sender, PointerRoutedEventArgs e)
 		{
-			if (_isVerticalDragging) return;
-			var pos = e.GetCurrentPoint(VerticalHoverZone).Position;
-			double distToCenter = Math.Abs(pos.X - VerticalHoverZone.Width / 2);
-			double maxDist = VerticalHoverZone.Width / 2;
+			if (_isVertical2Dragging) return;
+			var pos = e.GetCurrentPoint(VerticalHoverZone2).Position;
+			double distToCenter = Math.Abs(pos.X - VerticalHoverZone2.Width / 2);
+			double maxDist = VerticalHoverZone2.Width / 2;
 
-			// 归一化距离 [0, 1]
 			double normalizedDist = Math.Min(1.0, distToCenter / maxDist);
-
-			// 先快后慢：使用 ease-out 效果 → ratio = 1 - normalizedDist^2
 			double ratio = 1.0 - normalizedDist * normalizedDist;
 
 			double targetHeight = 120 + ratio * (250 - 120);
-			VerticalVisualLine.Height = targetHeight;
+			VerticalVisualLine2.Height = targetHeight;
 			if (distToCenter <= 3)
 			{
-				VerticalVisualLine.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+				VerticalVisualLine2.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorPrimaryBrush"];
 			}
 			else
 			{
-				VerticalVisualLine.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+				VerticalVisualLine2.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorTertiaryBrush"];
 			}
 		}
-		private void VerticalHoverZone_PointerPressed(object sender, PointerRoutedEventArgs e)
+		private void VerticalHoverZone2_PointerPressed(object sender, PointerRoutedEventArgs e)
 		{
-			var pos = e.GetCurrentPoint(VerticalHoverZone).Position;
-			if (Math.Abs(pos.X - VerticalHoverZone.Width / 2) <= 3)
+			var pos = e.GetCurrentPoint(VerticalHoverZone2).Position;
+			if (Math.Abs(pos.X - VerticalHoverZone2.Width / 2) <= 3)
 			{
-				_isVerticalDragging = true;
-				VerticalHoverZone.CapturePointer(e.Pointer);
+				_isVertical2Dragging = true;
+				VerticalHoverZone2.CapturePointer(e.Pointer);
 				e.Handled = true;
 			}
 		}
 
-		private void VerticalHoverZone_PointerReleased(object sender, PointerRoutedEventArgs e)
+		private void VerticalHoverZone2_PointerReleased(object sender, PointerRoutedEventArgs e)
 		{
-			if (_isVerticalDragging)
+			if (_isVertical2Dragging)
 			{
-				_isVerticalDragging = false;
-				VerticalHoverZone.ReleasePointerCapture(e.Pointer);
+				_isVertical2Dragging = false;
+				VerticalHoverZone2.ReleasePointerCapture(e.Pointer);
 				UpdateHoverZones();
 				e.Handled = true;
 			}
 		}
 
-		private void VerticalHoverZone_PointerExited(object sender, PointerRoutedEventArgs e)
+		private void VerticalHoverZone2_PointerExited(object sender, PointerRoutedEventArgs e)
 		{
-			if (_isVerticalDragging) return;
-			VerticalVisualLine.Height = 120;
+			if (_isVertical2Dragging) return;
+			VerticalVisualLine2.Height = 120;
 		}
 
-		private void VerticalHoverZone_PointerEntered(object sender, PointerRoutedEventArgs e)
+		private void VerticalHoverZone2_PointerEntered(object sender, PointerRoutedEventArgs e)
 		{
-			VerticalHoverZone_PointerMoved(sender, e);
+			VerticalHoverZone2_PointerMoved(sender, e);
 		}
 
-		private void VerticalDragUpdate(PointerRoutedEventArgs e)
+		private void VerticalHoverZone1_PointerMoved(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isVertical1Dragging) return;
+			var pos = e.GetCurrentPoint(VerticalHoverZone1).Position;
+			double distToCenter = Math.Abs(pos.X - VerticalHoverZone1.Width / 2);
+			double maxDist = VerticalHoverZone1.Width / 2;
+
+			double normalizedDist = Math.Min(1.0, distToCenter / maxDist);
+			double ratio = 1.0 - normalizedDist * normalizedDist;
+
+			double targetHeight = 120 + ratio * (250 - 120);
+			VerticalVisualLine1.Height = targetHeight;
+			if (distToCenter <= 3)
+			{
+				VerticalVisualLine1.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+			}
+			else
+			{
+				VerticalVisualLine1.Background = (SolidColorBrush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+			}
+		}
+
+		private void VerticalHoverZone1_PointerPressed(object sender, PointerRoutedEventArgs e)
+		{
+			var pos = e.GetCurrentPoint(VerticalHoverZone1).Position;
+			if (Math.Abs(pos.X - VerticalHoverZone1.Width / 2) <= 3)
+			{
+				_isVertical1Dragging = true;
+				VerticalHoverZone1.CapturePointer(e.Pointer);
+				e.Handled = true;
+			}
+		}
+
+		private void VerticalHoverZone1_PointerReleased(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isVertical1Dragging)
+			{
+				_isVertical1Dragging = false;
+				VerticalHoverZone1.ReleasePointerCapture(e.Pointer);
+				UpdateHoverZones();
+				e.Handled = true;
+			}
+		}
+
+		private void VerticalHoverZone1_PointerExited(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isVertical1Dragging) return;
+			VerticalVisualLine1.Height = 120;
+		}
+
+		private void VerticalHoverZone1_PointerEntered(object sender, PointerRoutedEventArgs e)
+		{
+			VerticalHoverZone1_PointerMoved(sender, e);
+		}
+
+		private void VerticalHoverZone1_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isVertical1Dragging)
+			{
+				Vertical1DragUpdate(e);
+				e.Handled = true;
+			}
+			else
+			{
+				VerticalHoverZone1_PointerMoved(sender, e);
+			}
+		}
+
+		private void Vertical1DragUpdate(PointerRoutedEventArgs e)
+		{
+			var globalPos = e.GetCurrentPoint(RootGrid).Position;
+			const double minSize = 0;
+
+			double left = Math.Max(minSize, globalPos.X);
+			double center = RootGrid.ActualWidth - globalPos.X - RightColumn.ActualWidth - VerticalVisualLine1.ActualWidth - VerticalVisualLine2.ActualWidth;
+
+			if (center < minSize)
+			{
+				center = minSize;
+			}
+
+			LeftColumn.Width = new GridLength(Math.Max(minSize, left));
+			CenterColumn.Width = new GridLength(Math.Max(minSize, center));
+
+			UpdateViewModelRenderSize();
+		}
+
+		private void HorizontalHoverZone_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isHorizontalDragging)
+			{
+				HorizontalDragUpdate(e);
+				e.Handled = true;
+			}
+			else
+			{
+				HorizontalHoverZone_PointerMoved(sender, e);
+			}
+		}
+
+		private void VerticalHoverZone2_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
+		{
+			if (_isVertical2Dragging)
+			{
+				Vertical2DragUpdate(e);
+				e.Handled = true;
+			}
+			else
+			{
+				VerticalHoverZone2_PointerMoved(sender, e);
+			}
+		}
+
+		private void Vertical2DragUpdate(PointerRoutedEventArgs e)
 		{
 			var globalPos = e.GetCurrentPoint(RootGrid).Position;
 			const double minSize = 0;
 			double totalW = RootGrid.ActualWidth;
-			double splitterW = VerticalVisualLine.ActualWidth;
+			double splitterW = VerticalVisualLine2.ActualWidth;
 
-			double left = Math.Max(minSize, globalPos.X);
-			double right = totalW - left - splitterW;
-			if (right < minSize)
-			{
-				left = totalW - minSize - splitterW;
-				right = minSize;
-			}
+			double center = Math.Max(minSize, globalPos.X - LeftColumn.ActualWidth - splitterW);
+			double right = totalW - globalPos.X - splitterW;
 
-			LeftColumn.Width = new GridLength(Math.Max(minSize, left));
+			CenterColumn.Width = new GridLength(Math.Max(minSize, center));
 			RightColumn.Width = new GridLength(Math.Max(minSize, right));
 
 			UpdateViewModelRenderSize();
@@ -207,32 +316,6 @@ namespace ShadeFlow.Views
 				{
 					ViewModel.RenderViewModel.ResizeRendererCommand.Execute(null);
 				}
-			}
-		}
-
-		private void HorizontalHoverZone_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
-		{
-			if (_isHorizontalDragging)
-			{
-				HorizontalDragUpdate(e);
-				e.Handled = true;
-			}
-			else
-			{
-				HorizontalHoverZone_PointerMoved(sender, e);
-			}
-		}
-
-		private void VerticalHoverZone_PointerMoved_Drag(object sender, PointerRoutedEventArgs e)
-		{
-			if (_isVerticalDragging)
-			{
-				VerticalDragUpdate(e);
-				e.Handled = true;
-			}
-			else
-			{
-				VerticalHoverZone_PointerMoved(sender, e);
 			}
 		}
 	}

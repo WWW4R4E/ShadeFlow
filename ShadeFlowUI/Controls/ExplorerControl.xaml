@@ -1,0 +1,74 @@
+<UserControl
+    x:Class="ShadeFlow.Controls.ExplorerControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:ShadeFlow.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    d:DesignHeight="300"
+    d:DesignWidth="400"
+    mc:Ignorable="d">
+
+    <Grid Background="{ThemeResource CardBackgroundFillColorDefault}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  标题栏  -->
+        <Grid Grid.Row="0" Padding="10,0,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                FontSize="12"
+                FontWeight="SemiBold"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="资源管理器" />
+
+            <Button
+                x:Name="CollapseAllButton"
+                Grid.Column="1"
+                Width="24"
+                Height="24"
+                Margin="0,0,8,0"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="CollapseAllButton_Click"
+                Content="−"
+                FontSize="16"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Grid>
+
+        <!--  文件树  -->
+        <TreeView
+            x:Name="FileTreeView"
+            Grid.Row="1"
+            Margin="6,8,6,8"
+            AllowDrop="True"
+            CanDragItems="True"
+            CanReorderItems="True">
+            <TreeView.ItemTemplate>
+                <DataTemplate x:DataType="local:TreeViewItemModel">
+                    <TreeViewItem IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" ItemsSource="{x:Bind Children, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal">
+                            <FontIcon
+                                Margin="0,0,6,0"
+                                FontFamily="Segoe Fluent Icons"
+                                FontSize="14"
+                                Glyph="{x:Bind Icon, Mode=OneWay}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontSize="14"
+                                Text="{x:Bind Name, Mode=OneWay}" />
+                        </StackPanel>
+                    </TreeViewItem>
+                </DataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+    </Grid>
+</UserControl>
