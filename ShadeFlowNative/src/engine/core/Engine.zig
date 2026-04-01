@@ -11,8 +11,10 @@ const Renderer = @import("../renderer/Renderer.zig").Renderer;
 const ShaderManager = @import("../renderer/ShaderManager.zig").ShaderManager;
 
 // 顶点结构，与着色器中的定义匹配
+// 顶点结构，与着色器中的定义匹配
 pub const Vertex = struct {
     position: [3]f32,
+    // color: [4]f32,
     // color: [4]f32,
 };
 
@@ -32,6 +34,7 @@ const RenderObject = struct {
     shader: Shader,
 };
 
+// 索引渲染对象结构
 // 索引渲染对象结构
 const IndexedRenderObject = struct {
     vertex_buffer: Buffer,
@@ -59,6 +62,7 @@ pub const Engine = struct {
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
+            std.debug.print("Failed to allocate engine: {}", .{err});
             std.debug.print("Failed to allocate engine: {}", .{err});
             renderer.deinit();
             return err;
@@ -90,12 +94,15 @@ pub const Engine = struct {
         const engine = allocator.create(Engine) catch |err| {
             std.debug.print("Failed to allocate engine: {}", .{err});
             renderer.deinit();
+            std.debug.print("Failed to allocate engine: {}", .{err});
+            renderer.deinit();
             return err;
         };
 
         // 初始化常量缓冲区
         var constant_buffer = Buffer.init(.constant);
         try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
+
 
         engine.* = Engine{
             .allocator = allocator,
@@ -233,6 +240,7 @@ pub const Engine = struct {
         self.render_objects.deinit(self.allocator);
         self.indexed_render_objects.deinit(self.allocator);
         self.shader_manager.deinit();
+        self.constant_buffer.deinit();
         self.constant_buffer.deinit();
 
         if (self.renderer) |*r| {
