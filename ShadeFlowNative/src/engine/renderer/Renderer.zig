@@ -28,7 +28,7 @@ pub const Renderer = struct {
     /// 针对 WinUI 3 (Composition) 的初始化入口
     pub fn initForComposition(width: u32, height: u32) !Renderer {
         // 1. 创建设备
-        var device = try Device.init(); // 假设 Device.init() 创建了 ID3D11Device 和 Context
+        var device = try Device.init();
         errdefer device.deinit();
 
         // 2. 创建 SwapChain (Composition 模式)
@@ -84,7 +84,7 @@ pub const Renderer = struct {
 
     /// 核心辅助函数：创建 RTV, Depth Buffer 和 Viewport
     /// 无论是 Init 还是 Resize，本质上都是在做这件事
-    fn createPipelineResources(self: *Renderer, width: u32, height: u32) !void {
+    fn createPipelineResources(self: *@This(), width: u32, height: u32) !void {
         // 1. 从 SwapChain 获取 BackBuffer
         // 注意：IDXGISwapChain1 也是用 GetBuffer，接口是一样的
         var back_buffer: *win32.ID3D11Texture2D = undefined;
@@ -170,32 +170,32 @@ pub const Renderer = struct {
     }
 
     // 绘制三角形列表
-    pub fn drawTriangleList(self: *Renderer, vertex_count: u32, start_vertex_location: u32) void {
-        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        self.device.device_context.Draw(vertex_count, start_vertex_location);
-    }
+    // pub fn drawTriangleList(self: *Renderer, vertex_count: u32, start_vertex_location: u32) void {
+    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    //     self.device.device_context.Draw(vertex_count, start_vertex_location);
+    // }
 
     // 绘制索引三角形列表
-    pub fn drawIndexedTriangleList(self: *Renderer, index_count: u32, start_index_location: u32, base_vertex_location: i32) void {
-        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        self.device.device_context.DrawIndexed(index_count, start_index_location, base_vertex_location);
-    }
+    // pub fn drawIndexedTriangleList(self: *Renderer, index_count: u32, start_index_location: u32, base_vertex_location: i32) void {
+    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    //     self.device.device_context.DrawIndexed(index_count, start_index_location, base_vertex_location);
+    // }
 
     // 绘制四边形
-    pub fn drawQuad(self: *Renderer, shader: *Shader, vertex_buffer: *Buffer) void {
+    // pub fn drawQuad(self: *Renderer, shader: *Shader, vertex_buffer: *Buffer) void {
 
-        // 使用着色器
-        shader.use(self.device.device_context);
+    //     // 使用着色器
+    //     shader.use(self.device.device_context);
 
-        // 绑定顶点缓冲区
-        vertex_buffer.bindVertexBuffer(self.device.device_context, 0);
+    //     // 绑定顶点缓冲区
+    //     vertex_buffer.bindVertexBuffer(self.device.device_context, 0);
 
-        // 设置拓扑为三角形列表
-        self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    //     // 设置拓扑为三角形列表
+    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        // 绘制两个三角形组成的四边形
-        self.device.device_context.Draw(6, 0);
-    }
+    //     // 绘制两个三角形组成的四边形
+    //     self.device.device_context.Draw(6, 0);
+    // }
 
     // 设置光栅化器状态
     pub fn setRasterizerState(self: *Renderer, fill_mode: enum { solid, wireframe }, cull_mode: enum { none, front, back }) !void {

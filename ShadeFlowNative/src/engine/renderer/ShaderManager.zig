@@ -31,7 +31,7 @@ pub const ShaderManager = struct {
 
         // 加载顶点着色器
         try shader.loadShaderFromFile(self.device, vertex_path, .vertex, input_elements);
-        
+
         // 加载像素着色器
         try shader.loadShaderFromFile(self.device, pixel_path, .pixel, null);
 

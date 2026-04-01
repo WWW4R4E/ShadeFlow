@@ -1,4 +1,4 @@
-# ShadeFlow - 现代图形应用开发框架
+# ShadeFlow 
 
 ## 项目概述
 

@@ -12,23 +12,9 @@ pub const Window = struct {
     size_changed: bool,
 
     const CLASS_NAME = L("ZigDx11WindowClass");
-    var static_data_initialized: bool = false;
 
     // 窗口实例指针映射，用于在窗口过程中访问Window实例
     var window_instances: std.AutoHashMap(win32.HWND, *Window) = undefined;
-
-    // 初始化静态数据
-    fn initStaticData() !void {
-        window_instances = std.AutoHashMap(win32.HWND, *Window).init(std.heap.page_allocator);
-        static_data_initialized = true;
-    }
-
-    // 清理静态数据
-    fn deinitStaticData() void {
-        if (static_data_initialized) {
-            window_instances.deinit();
-        }
-    }
 
     fn wndProc(
         hwnd: win32.HWND,
@@ -65,9 +51,6 @@ pub const Window = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator) !*Window {
-        if (!static_data_initialized) {
-            try initStaticData();
-        }
 
         const wc = win32.WNDCLASSW{
             .style = .{},
