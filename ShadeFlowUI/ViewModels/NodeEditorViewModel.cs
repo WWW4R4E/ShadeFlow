@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI;
 using ShadeFlow.Controls;
 using ShadeFlow.Models;
 using System;

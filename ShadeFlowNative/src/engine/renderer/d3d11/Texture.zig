@@ -32,7 +32,7 @@ pub const Texture = struct {
         };
     }
 
-    pub fn createFromFile(self: *Texture, device: *Device, path: []const u8) HResultError!void {
+    pub fn createFromFile(self: *Texture, device: *Device, path: []const u8) !void {
         // 确保是2D纹理类型
         if (self.texture_type != .texture_2d) {
             return error.InvalidTextureType;
@@ -80,7 +80,9 @@ pub const Texture = struct {
         var texture: ?*win32.ID3D11Texture2D = null;
         const hr_tex = device.d3d_device.CreateTexture2D(&texture_desc, null, &texture);
         if (hr_tex != win32.S_OK) {
-            return HResultError.init(hr_tex);
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr_tex);
+            return error.HResultError;
         }
 
         // 创建着色器资源视图
@@ -110,7 +112,7 @@ pub const Texture = struct {
         self.height = height;
     }
 
-    pub fn createRenderTarget(self: *Texture, device: *Device, width: u32, height: u32) HResultError!void {
+    pub fn createRenderTarget(self: *Texture, device: *Device, width: u32, height: u32) !void {
         // 确保是渲染目标类型
         if (self.texture_type != .render_target) {
             return error.InvalidTextureType;
@@ -137,7 +139,9 @@ pub const Texture = struct {
         var texture: ?*win32.ID3D11Texture2D = null;
         const hr_tex = device.d3d_device.CreateTexture2D(&texture_desc, null, &texture);
         if (hr_tex != win32.S_OK) {
-            return HResultError.init(hr_tex);
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr_tex);
+            return error.HResultError;
         }
 
         // 创建渲染目标视图

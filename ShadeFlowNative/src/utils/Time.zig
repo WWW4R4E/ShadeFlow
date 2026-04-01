@@ -3,8 +3,8 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 
 pub const Time = struct {
-    start_time: u64,
-    last_frame_time: u64,
+    start_time: i64,
+    last_frame_time: i64,
     delta_time: f64,
     total_time: f64,
     frame_count: u64,
@@ -12,9 +12,11 @@ pub const Time = struct {
     fps_update_time: f64,
 
     pub fn init() Time {
+        var counter: win32.LARGE_INTEGER = undefined;
+        _ = win32.QueryPerformanceCounter(&counter);
         return Time{
-            .start_time = win32.GetPerformanceCounter(),
-            .last_frame_time = win32.GetPerformanceCounter(),
+            .start_time = counter.QuadPart,
+            .last_frame_time = counter.QuadPart,
             .delta_time = 0.0,
             .total_time = 0.0,
             .frame_count = 0,
@@ -24,15 +26,17 @@ pub const Time = struct {
     }
 
     pub fn update(self: *Time) void {
-        const current_time = win32.GetPerformanceCounter();
-        const frequency = win32.GetPerformanceFrequency();
+        var current_time: win32.LARGE_INTEGER = undefined;
+        _ = win32.QueryPerformanceCounter(&current_time);
+        var frequency: win32.LARGE_INTEGER = undefined;
+        _ = win32.QueryPerformanceFrequency(&frequency);
 
         // 计算delta time
-        self.delta_time = @as(f64, @floatFromInt(current_time - self.last_frame_time)) / @as(f64, @floatFromInt(frequency));
-        self.last_frame_time = current_time;
+        self.delta_time = @as(f64, @floatFromInt(current_time.QuadPart - self.last_frame_time)) / @as(f64, @floatFromInt(frequency.QuadPart));
+        self.last_frame_time = current_time.QuadPart;
 
         // 更新总时间
-        self.total_time = @as(f64, @floatFromInt(current_time - self.start_time)) / @as(f64, @floatFromInt(frequency));
+        self.total_time = @as(f64, @floatFromInt(current_time.QuadPart - self.start_time)) / @as(f64, @floatFromInt(frequency.QuadPart));
 
         // 更新帧率计算
         self.frame_count += 1;
