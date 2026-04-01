@@ -117,6 +117,7 @@ pub const Buffer = struct {
         var buffer: ?*win32.ID3D11Buffer = null;
         const hr = device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, @ptrCast(&buffer));
         if (hr != win32.S_OK) {
+            std.debug.print("Failed to create index buffer: 0x{X}\n", .{hr});
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr);
             return error.HResultError;
@@ -131,7 +132,7 @@ pub const Buffer = struct {
         self.count = @intCast(data.len);
     }
 
-    pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) HResultError!void {
+    pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) !void {
         // 确保是常量缓冲区类型
         if (self.buffer_type != .constant) {
             return error.InvalidBufferType;
@@ -149,10 +150,12 @@ pub const Buffer = struct {
 
         // 创建缓冲区
         var buffer: ?*win32.ID3D11Buffer = null;
-        const hr = device.d3d_device.CreateBuffer(&buffer_desc, null, &buffer);
+        const hr = device.d3d_device.CreateBuffer(&buffer_desc, null, @ptrCast(&buffer));
         if (hr != win32.S_OK) {
             std.debug.print("Failed to create constant buffer: 0x{X}\n", .{hr});
-            return HResultError.init(hr);
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr);
+            return error.HResultError;
         }
 
         // 释放旧缓冲区
@@ -164,7 +167,7 @@ pub const Buffer = struct {
         self.count = 0;
     }
 
-    pub fn updateConstantBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, data: []const u8) HResultError!void {
+    pub fn updateConstantBuffer(self: *Buffer, device_context: *win32.ID3D11DeviceContext, data: []const u8) !void {
         if (self.buffer_type != .constant) {
             return error.InvalidBufferType;
         }
@@ -175,16 +178,18 @@ pub const Buffer = struct {
 
         // 映射缓冲区
         var mapped_resource: win32.D3D11_MAPPED_SUBRESOURCE = undefined;
-        const hr = device_context.Map(self.buffer.?, 0, win32.D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+        const hr = device_context.Map(@ptrCast(self.buffer.?), 0, win32.D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
         if (hr != win32.S_OK) {
-            return HResultError.init(hr);
+            var hresult_error: HResultError = undefined;
+            hresult_error.init(hr);
+            return error.HResultError;
         }
 
         // 复制数据
-        @memcpy(mapped_resource.pData[0..data.len], data.ptr);
-
+        const dst: [*]u8 = @ptrCast(mapped_resource.pData.?);
+        @memcpy(dst[0..data.len], data);
         // 取消映射
-        device_context.Unmap(self.buffer.?, 0);
+        device_context.Unmap(@ptrCast(self.buffer.?), 0);
     }
 
     pub fn bindVertexBuffer(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
@@ -211,7 +216,7 @@ pub const Buffer = struct {
 
     pub fn bindConstantBufferPS(self: *Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {
         if (self.buffer_type == .constant and self.buffer != null) {
-            device_context.PSSetConstantBuffers(slot, 1, &self.buffer);
+            device_context.PSSetConstantBuffers(slot, 1, @ptrCast(&self.buffer.?));
         }
     }
 

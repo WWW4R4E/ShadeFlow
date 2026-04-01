@@ -2,6 +2,7 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
+const Time = @import("../../utils/Time.zig").Time;
 const Buffer = @import("../renderer/d3d11/Buffer.zig").Buffer;
 const Device = @import("../renderer/d3d11/Device.zig").Device;
 const Shader = @import("../renderer/d3d11/Shader.zig").Shader;
@@ -9,16 +10,26 @@ const CommonInputLayouts = @import("../renderer/d3d11/Shader.zig").CommonInputLa
 const Renderer = @import("../renderer/Renderer.zig").Renderer;
 const ShaderManager = @import("../renderer/ShaderManager.zig").ShaderManager;
 
+// 顶点结构，与着色器中的定义匹配
 pub const Vertex = struct {
     position: [3]f32,
-    color: [4]f32,
+    // color: [4]f32,
 };
 
+// 常量缓冲区结构，与着色器中的定义匹配
+pub const Constants = struct {
+    gColor: [4]f32,
+    time: f32,
+    padding: [3]f32,
+};
+
+// 渲染对象结构
 const RenderObject = struct {
     vertex_buffer: Buffer,
     shader: Shader,
 };
 
+// 索引渲染对象结构
 const IndexedRenderObject = struct {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -34,6 +45,8 @@ pub const Engine = struct {
     indexed_render_objects: std.ArrayList(IndexedRenderObject),
     shader_manager: ShaderManager,
     size_changed: bool = false,
+    time: Time,
+    constant_buffer: Buffer,
 
     // 为 Composition 初始化引擎
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
@@ -43,10 +56,15 @@ pub const Engine = struct {
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
-            std.debug.print("Failed to allocate engine: {}\n", .{err});
+            std.debug.print("Failed to allocate engine: {}", .{err});
             renderer.deinit();
             return err;
         };
+
+        // 初始化常量缓冲区
+        var constant_buffer = Buffer.init(.constant);
+        try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
+
         engine.* = Engine{
             .allocator = allocator,
             .hwnd = null,
@@ -54,6 +72,8 @@ pub const Engine = struct {
             .render_objects = .empty,
             .indexed_render_objects = .empty,
             .shader_manager = shader_manager,
+            .time = Time.init(),
+            .constant_buffer = constant_buffer,
         };
         return engine;
     }
@@ -65,9 +85,14 @@ pub const Engine = struct {
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
-            std.debug.print("Failed to allocate engine: {}\n", .{err});
+            std.debug.print("Failed to allocate engine: {}", .{err});
+            renderer.deinit();
             return err;
         };
+
+        // 初始化常量缓冲区
+        var constant_buffer = Buffer.init(.constant);
+        try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
 
         engine.* = Engine{
             .allocator = allocator,
@@ -76,6 +101,8 @@ pub const Engine = struct {
             .render_objects = .empty,
             .indexed_render_objects = .empty,
             .shader_manager = shader_manager,
+            .time = Time.init(),
+            .constant_buffer = constant_buffer,
         };
         return engine;
     }
@@ -203,6 +230,7 @@ pub const Engine = struct {
         self.render_objects.deinit(self.allocator);
         self.indexed_render_objects.deinit(self.allocator);
         self.shader_manager.deinit();
+        self.constant_buffer.deinit();
 
         if (self.renderer) |*r| {
             r.deinit();
@@ -236,12 +264,28 @@ pub const Engine = struct {
             self.size_changed = false;
         }
 
+        // 更新时间
+        self.time.update();
+
         return true;
     }
 
     pub fn render(self: *Engine) void {
         if (self.renderer) |*r| {
             r.beginFrame([4]f32{ 0.2, 0.2, 0.3, 1.0 });
+
+            // 更新常量缓冲区
+            const constants = Constants{
+                .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
+                .time = @floatCast(self.time.getTotalTime()),
+                .padding = [3]f32{ 0.0, 0.0, 0.0 },
+            };
+            self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
+                std.debug.print("Failed to update constant buffer: {}\n", .{err});
+            };
+
+            // 绑定常量缓冲区到像素着色器的 b0 槽位
+            self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
 
             for (self.render_objects.items) |render_object| {
                 // 设置渲染状态

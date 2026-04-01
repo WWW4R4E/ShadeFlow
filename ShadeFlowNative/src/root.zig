@@ -22,6 +22,7 @@ pub const LogLevel = enum(c_int) {
 var log_callback: ?*const anyopaque = null;
 
 // 定义日志回调函数指针类型
+
 const LogCallbackPtr = *const fn (level: c_int, message: [*c]const u8) callconv(.c) void;
 
 // 引擎实例的全局存储
@@ -132,10 +133,15 @@ export fn ShadeFlow_AddTriangleObject(
 
         log(LogLevel.Debug, "[ShadeFlow_AddTriangleObject] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
 
+        // const triangle_vertices = [_]Vertex{
+        //     Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
+        //     Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
+        //     Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
+        // };
         const triangle_vertices = [_]Vertex{
-            Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
-            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
-            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
+            Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 } },
+            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 } },
+            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 } },
         };
         engine.addRenderObject(&triangle_vertices, vertex_shader_path, pixel_shader_path) catch |err| {
             log(LogLevel.Error, "[ShadeFlow_AddTriangleObject] Failed to add render object: {}\n", .{err});
@@ -162,11 +168,17 @@ export fn ShadeFlow_AddQuadObject(
 
         log(LogLevel.Debug, "[ShadeFlow_AddQuadObject] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
 
+        // const quad_vertices = [_]Vertex{
+        //     Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
+        //     Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
+        //     Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
+        //     Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } },
+        // };
         const quad_vertices = [_]Vertex{
-            Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
-            Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
-            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
-            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } },
+            Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 } },
+            Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 } },
+            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 } },
+            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 } },
         };
 
         const quad_indices = [_]u16{
@@ -238,35 +250,32 @@ export fn ShadeFlow_RegisterLogCallback(callback: *const anyopaque) void {
     log(LogLevel.Info, "[ShadeFlow_RegisterLogCallback] Log callback registered successfully\n", .{});
 }
 
-// // test "Cube" {
-// //     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-// //     const allocator = gpa.allocator();
-// //     defer _ = gpa.deinit();
-// //     var Mainwindow = try Window.init(allocator);
-// //     defer Mainwindow.deinit();
-// //     Mainwindow.show();
+test "Cube" {
+    var Mainwindow = try Window.init(allocator);
+    defer Mainwindow.deinit();
+    Mainwindow.show();
 
-// //     const size = Mainwindow.getClientSize();
+    const size = Mainwindow.getClientSize();
 
-// //     var engine = try Engine.init(allocator, size.width, size.height, Mainwindow.hwnd);
+    var engine = try Engine.init(allocator, size.width, size.height, Mainwindow.hwnd);
 
-// //     // 创建矩形顶点数据（由两个三角形组成）
-// //     const quad_vertices = [_]Vertex{
-// //         Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上 - 红色
-// //         Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上 - 绿色
-// //         Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下 - 蓝色
-// //         Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下 - 黄色
-// //     };
+    // 创建矩形顶点数据（由两个三角形组成）
+    const quad_vertices = [_]Vertex{
+        Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上 - 红色
+        Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上 - 绿色
+        Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下 - 蓝色
+        Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下 - 黄色
+    };
 
-// //     // 矩形索引数据（两个三角形）
-// //     const quad_indices = [_]u16{
-// //         0, 1, 2, // 第一个三角形
-// //         0, 2, 3, // 第二个三角形
-// //     };
+    // 矩形索引数据（两个三角形）
+    const quad_indices = [_]u16{
+        0, 1, 2, // 第一个三角形
+        0, 2, 3, // 第二个三角形
+    };
 
-// //     // 添加矩形对象
-// //     try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso");
+    // 添加矩形对象
+    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso");
 
-// //     try engine.run();
-// //     defer engine.deinit();
-// // }
+    try engine.run();
+    defer engine.deinit();
+}
