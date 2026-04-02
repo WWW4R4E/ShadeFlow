@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Data;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 
@@ -13,44 +12,50 @@ namespace ShadeFlow.Controls
         public ExplorerControl()
         {
             this.InitializeComponent();
-            LoadSampleData();
         }
 
-        private void LoadSampleData()
+        // 加载指定路径的文件夹
+        public void LoadFolder(string folderPath)
         {
             _treeViewItems = new ObservableCollection<TreeViewItemModel>();
 
-            // 创建示例根目录
             var rootFolder = new TreeViewItemModel
             {
-                Name = "ShadeFlow Project",
+                Name = System.IO.Path.GetFileName(folderPath),
                 IsExpanded = true
             };
 
-            // 添加子项
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "Assets", IsExpanded = false });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "Models", IsExpanded = false });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "Views", IsExpanded = false });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "ViewModels", IsExpanded = false });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "Controls", IsExpanded = false });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "Utils", IsExpanded = false });
-
-            var shadersFolder = new TreeViewItemModel
-            {
-                Name = "Shaders",
-                IsExpanded = true
-            };
-            shadersFolder.Children.Add(new TreeViewItemModel { Name = "vertex.hlsl", Icon = "\uE7C3" }); // File icon
-            shadersFolder.Children.Add(new TreeViewItemModel { Name = "pixel.hlsl", Icon = "\uE7C3" });
-            shadersFolder.Children.Add(new TreeViewItemModel { Name = "compute.hlsl", Icon = "\uE7C3" });
-            rootFolder.Children.Add(shadersFolder);
-
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "App.xaml", Icon = "\uE7C3" });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "MainWindow.xaml", Icon = "\uE7C3" });
-            rootFolder.Children.Add(new TreeViewItemModel { Name = "ShadeFlow.sln", Icon = "\uE7C3" }); // Solution icon
+            LoadFolderContents(rootFolder, folderPath);
 
             _treeViewItems.Add(rootFolder);
             FileTreeView.ItemsSource = _treeViewItems;
+        }
+
+        // 递归加载文件夹内容
+        private void LoadFolderContents(TreeViewItemModel parent, string folderPath)
+        {
+            foreach (var subFolderPath in System.IO.Directory.GetDirectories(folderPath))
+            {
+                var folderName = System.IO.Path.GetFileName(subFolderPath);
+                var folderItem = new TreeViewItemModel
+                {
+                    Name = folderName,
+                    IsExpanded = false
+                };
+                parent.Children.Add(folderItem);
+                LoadFolderContents(folderItem, subFolderPath);
+            }
+
+            foreach (var filePath in System.IO.Directory.GetFiles(folderPath))
+            {
+                var fileName = System.IO.Path.GetFileName(filePath);
+                var fileItem = new TreeViewItemModel
+                {
+                    Name = fileName,
+                    Icon = "\uE7C3"
+                };
+                parent.Children.Add(fileItem);
+            }
         }
 
         // 处理折叠所有按钮点击事件
@@ -79,35 +84,35 @@ namespace ShadeFlow.Controls
         private bool _isExpanded;
         private string _icon;
 
-        public string Name 
-        { 
-            get => _name; 
-            set 
-            { 
-                _name = value; 
-                OnPropertyChanged(nameof(Name)); 
-            } 
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                _name = value;
+                OnPropertyChanged(nameof(Name));
+            }
         }
-        
-        public string Icon 
-        { 
-            get => _icon ?? GetDefaultIcon(); 
-            set 
-            { 
-                _icon = value; 
-                OnPropertyChanged(nameof(Icon)); 
-            } 
+
+        public string Icon
+        {
+            get => _icon ?? GetDefaultIcon();
+            set
+            {
+                _icon = value;
+                OnPropertyChanged(nameof(Icon));
+            }
         }
-        
-        public bool IsExpanded 
-        { 
-            get => _isExpanded; 
-            set 
-            { 
-                _isExpanded = value; 
-                OnPropertyChanged(nameof(IsExpanded)); 
-                OnPropertyChanged(nameof(Icon)); // 当展开状态改变时触发图标更新
-            } 
+
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                _isExpanded = value;
+                OnPropertyChanged(nameof(IsExpanded));
+                OnPropertyChanged(nameof(Icon));
+            }
         }
 
         public ObservableCollection<TreeViewItemModel> Children { get; set; } = new ObservableCollection<TreeViewItemModel>();
@@ -115,14 +120,14 @@ namespace ShadeFlow.Controls
         // 根据展开状态返回适当的文件夹图标，否则返回默认图标
         private string GetDefaultIcon()
         {
-            if (_icon != null) return _icon; // 如果已设置特定图标，则直接返回
-            
-            if (Children.Count > 0) // 是一个文件夹
+            if (_icon != null) return _icon;
+
+            if (Children.Count > 0)
             {
-                return IsExpanded ? "\uE838" : "\uE8B7"; // 展开时用 \uE838，闭合时用 \uE8B7
+                return IsExpanded ? "\uE838" : "\uE8B7";
             }
-            
-            return "\uE7C3"; // 新的文件图标
+
+            return "\uE7C3";
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

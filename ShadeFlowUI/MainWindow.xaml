@@ -42,22 +42,24 @@
                         FontSize="13"
                         FontWeight="SemiBold"
                         Text="ShadeFlow" />
-                    <Button
-                        Margin="2,0"
-                        Content="文件"
-                        Style="{StaticResource TitleBarButtonStyle}" />
-                    <Button
-                        Margin="2,0"
-                        Content="编辑"
-                        Style="{StaticResource TitleBarButtonStyle}" />
-                    <Button
-                        Margin="2,0"
-                        Content="视图"
-                        Style="{StaticResource TitleBarButtonStyle}" />
-                    <Button
-                        Margin="2,0"
-                        Content="帮助"
-                        Style="{StaticResource TitleBarButtonStyle}" />
+                    <MenuBar>
+                        <MenuBarItem Title="文件">
+                            <MenuFlyoutItem Text="打开..." Click="Open_Click"/>
+                            <MenuFlyoutItem Text="新建窗口" Click="NewWindow_Click"/>
+                            <MenuFlyoutItem Text="退出" Click="Exit_Click"/>
+                        </MenuBarItem>
+
+                        <MenuBarItem Title="视图">
+                            <MenuFlyoutItem Text="主侧边栏" Click="MainSidebar_Click"/>
+                            <MenuFlyoutItem Text="辅助侧边栏" Click="SecondarySidebar_Click"/>
+                            <MenuFlyoutItem Text="状态栏" Click="StatusBar_Click"/>
+                        </MenuBarItem>
+
+                        <MenuBarItem Title="帮助">
+                            <MenuFlyoutItem Text="关于" Click="About_Click"/>
+                            <MenuFlyoutItem Text="反馈" Click="Feedback_Click"/>
+                        </MenuBarItem>
+                    </MenuBar>
                 </StackPanel>
             </TitleBar.LeftHeader>
         </TitleBar>
