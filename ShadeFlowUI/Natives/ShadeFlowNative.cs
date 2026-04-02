@@ -681,5 +681,113 @@ namespace ShadeFlow.Natives
                 throw;
             }
         }
+
+        // 相机控制相关的DllImport声明
+
+        /// <summary>
+        /// 获取相机位置
+        /// </summary>
+        /// <param name="x">X坐标输出</param>
+        /// <param name="y">Y坐标输出</param>
+        /// <param name="z">Z坐标输出</param>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ShadeFlow_GetCameraPosition(out float x, out float y, out float z);
+
+        /// <summary>
+        /// 设置相机位置
+        /// </summary>
+        /// <param name="x">X坐标</param>
+        /// <param name="y">Y坐标</param>
+        /// <param name="z">Z坐标</param>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ShadeFlow_SetCameraPosition(float x, float y, float z);
+
+        /// <summary>
+        /// 获取相机距离
+        /// </summary>
+        /// <returns>相机距离</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern float ShadeFlow_GetCameraDistance();
+
+        /// <summary>
+        /// 设置相机距离
+        /// </summary>
+        /// <param name="distance">相机距离</param>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ShadeFlow_SetCameraDistance(float distance);
+
+        // 相机控制相关的包装方法
+
+        /// <summary>
+        /// 获取相机位置的包装方法
+        /// </summary>
+        /// <returns>相机位置</returns>
+        public static (float, float, float) GetCameraPosition()
+        {
+            try
+            {
+                float x, y, z;
+                ShadeFlow_GetCameraPosition(out x, out y, out z);
+                return (x, y, z);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error getting camera position: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 设置相机位置的包装方法
+        /// </summary>
+        /// <param name="x">X坐标</param>
+        /// <param name="y">Y坐标</param>
+        /// <param name="z">Z坐标</param>
+        public static void SetCameraPosition(float x, float y, float z)
+        {
+            try
+            {
+                ShadeFlow_SetCameraPosition(x, y, z);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error setting camera position: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取相机距离的包装方法
+        /// </summary>
+        /// <returns>相机距离</returns>
+        public static float GetCameraDistance()
+        {
+            try
+            {
+                return ShadeFlow_GetCameraDistance();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error getting camera distance: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 设置相机距离的包装方法
+        /// </summary>
+        /// <param name="distance">相机距离</param>
+        public static void SetCameraDistance(float distance)
+        {
+            try
+            {
+                ShadeFlow_SetCameraDistance(distance);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error setting camera distance: {ex.Message}");
+                throw;
+            }
+        }
     }
 }

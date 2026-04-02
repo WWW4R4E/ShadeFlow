@@ -6,7 +6,7 @@ using ShadeFlow.Models;
 using System.ComponentModel;
 using Windows.Foundation;
 
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class ConnectionLine : UserControl
     {

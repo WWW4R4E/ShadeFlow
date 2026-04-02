@@ -8,7 +8,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using Windows.ApplicationModel.DataTransfer;
 
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class ExplorerControl : UserControl
     {

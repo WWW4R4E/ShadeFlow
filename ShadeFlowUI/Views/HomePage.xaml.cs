@@ -36,7 +36,15 @@ namespace ShadeFlow.Views
             InitializeComponent();
         }
 
-
+        private void UpdateSidebarSizes()
+        {
+            var vertical = RootGrid.ActualWidth - RightColumn.ActualWidth - LeftColumn.ActualWidth - 12;
+            if (vertical > 0)
+            {
+                CenterColumn.Width = new GridLength(vertical);
+            }
+            UpdateViewModelRenderSize();
+        }
         private void UpdateHoverZones()
         {
             if (RootGrid.ActualWidth == 0 || RootGrid.ActualHeight == 0) return;
@@ -53,10 +61,11 @@ namespace ShadeFlow.Views
             VerticalHoverZone2.Margin = new Thickness(0, 0, vertical2X, vertical2Y + 48);
         }
 
+
         private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
         {
+            UpdateSidebarSizes();
             UpdateHoverZones();
-            UpdateViewModelRenderSize();
         }
 
         private void HorizontalHoverZone_PointerMoved(object sender, PointerRoutedEventArgs e)

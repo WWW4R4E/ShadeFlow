@@ -3,10 +3,9 @@ using Microsoft.UI.Xaml.Controls;
 using ShadeFlow.Models;
 using System.Linq;
 using System;
-using System.Diagnostics;
 using System.Numerics;
 
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class PropertiesControl : UserControl
     {

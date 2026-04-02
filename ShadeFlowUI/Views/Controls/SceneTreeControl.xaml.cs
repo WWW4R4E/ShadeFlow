@@ -9,7 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class SceneTreeControl : UserControl
     {
@@ -223,13 +223,13 @@ namespace ShadeFlow.Controls
             DeleteNodeMenuItem_Click(null, null);
             args.Handled = true;
         }
-        
+
         private void TreeViewItem_RenameAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
         {
             RenameNodeMenuItem_Click(null, null);
             args.Handled = true;
         }
-        
+
         private void TreeViewItem_DuplicateAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
         {
             DuplicateNodeMenuItem_Click(null, null);
@@ -312,31 +312,287 @@ namespace ShadeFlow.Controls
         }
 
         // 添加立方体菜单项点击事件
-        private void AddCubeMenuItem_Click(object sender, RoutedEventArgs e)
+        private async void AddCubeMenuItem_Click(object sender, RoutedEventArgs e)
         {
+            // 显示立方体参数输入对话框
+            var dialog = new ContentDialog
+            {
+                Title = "添加立方体",
+                Content = new StackPanel
+                {
+                    Children = {
+                        new TextBlock { Text = "大小:" },
+                        new TextBox { Name = "SizeTextBox", Text = "1.0" },
+                        new TextBlock { Text = "X坐标:" },
+                        new TextBox { Name = "PosXTextBox", Text = "0" },
+                        new TextBlock { Text = "Y坐标:" },
+                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBlock { Text = "Z坐标:" },
+                        new TextBox { Name = "PosZTextBox", Text = "0" }
+                    }
+                },
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot
+            };
+
+            bool isValidInput = false;
+            float size = 0;
+            float posX = 0;
+            float posY = 0;
+            float posZ = 0;
+
+            while (!isValidInput)
+            {
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    return; // 用户取消
+                }
+
+                try
+                {
+                    size = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[1]).Text);
+                    posX = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[3]).Text);
+                    posY = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[5]).Text);
+                    posZ = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[7]).Text);
+                    isValidInput = true;
+                }
+                catch (FormatException)
+                {
+                    // 显示错误提示
+                    var errorDialog = new ContentDialog
+                    {
+                        Title = "输入错误",
+                        Content = "请输入有效的数字",
+                        PrimaryButtonText = "确定",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await errorDialog.ShowAsync();
+                    // 继续循环，让用户重新输入
+                }
+            }
+
             AddGeometryItem("Cube", "");
-            ShadeFlowNative.AddCubeWithParams(1.0f, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            ShadeFlowNative.AddCubeWithParams(size, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加球体菜单项点击事件
-        private void AddSphereMenuItem_Click(object sender, RoutedEventArgs e)
+        private async void AddSphereMenuItem_Click(object sender, RoutedEventArgs e)
         {
+            // 显示球体参数输入对话框
+            var dialog = new ContentDialog
+            {
+                Title = "添加球体",
+                Content = new StackPanel
+                {
+                    Children = {
+                        new TextBlock { Text = "半径:" },
+                        new TextBox { Name = "RadiusTextBox", Text = "0.5" },
+                        new TextBlock { Text = "分段数:" },
+                        new TextBox { Name = "SegmentsTextBox", Text = "32" },
+                        new TextBlock { Text = "X坐标:" },
+                        new TextBox { Name = "PosXTextBox", Text = "0" },
+                        new TextBlock { Text = "Y坐标:" },
+                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBlock { Text = "Z坐标:" },
+                        new TextBox { Name = "PosZTextBox", Text = "0" }
+                    }
+                },
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot
+            };
+
+            bool isValidInput = false;
+            float radius = 0;
+            uint segments = 0;
+            float posX = 0;
+            float posY = 0;
+            float posZ = 0;
+
+            while (!isValidInput)
+            {
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    return; // 用户取消
+                }
+
+                try
+                {
+                    radius = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[1]).Text);
+                    segments = uint.Parse(((TextBox)((StackPanel)dialog.Content).Children[3]).Text);
+                    posX = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[5]).Text);
+                    posY = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[7]).Text);
+                    posZ = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[9]).Text);
+                    isValidInput = true;
+                }
+                catch (FormatException)
+                {
+                    // 显示错误提示
+                    var errorDialog = new ContentDialog
+                    {
+                        Title = "输入错误",
+                        Content = "请输入有效的数字",
+                        PrimaryButtonText = "确定",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await errorDialog.ShowAsync();
+                    // 继续循环，让用户重新输入
+                }
+            }
+
             AddGeometryItem("Sphere", "");
-            ShadeFlowNative.AddSphereWithParams(0.5f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            ShadeFlowNative.AddSphereWithParams(radius, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加圆柱体菜单项点击事件
-        private void AddCylinderMenuItem_Click(object sender, RoutedEventArgs e)
+        private async void AddCylinderMenuItem_Click(object sender, RoutedEventArgs e)
         {
+            // 显示圆柱体参数输入对话框
+            var dialog = new ContentDialog
+            {
+                Title = "添加圆柱体",
+                Content = new StackPanel
+                {
+                    Children = {
+                        new TextBlock { Text = "半径:" },
+                        new TextBox { Name = "RadiusTextBox", Text = "0.5" },
+                        new TextBlock { Text = "高度:" },
+                        new TextBox { Name = "HeightTextBox", Text = "1.0" },
+                        new TextBlock { Text = "分段数:" },
+                        new TextBox { Name = "SegmentsTextBox", Text = "32" },
+                        new TextBlock { Text = "X坐标:" },
+                        new TextBox { Name = "PosXTextBox", Text = "0" },
+                        new TextBlock { Text = "Y坐标:" },
+                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBlock { Text = "Z坐标:" },
+                        new TextBox { Name = "PosZTextBox", Text = "0" }
+                    }
+                },
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot
+            };
+
+            bool isValidInput = false;
+            float radius = 0;
+            float height = 0;
+            uint segments = 0;
+            float posX = 0;
+            float posY = 0;
+            float posZ = 0;
+
+            while (!isValidInput)
+            {
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    return; // 用户取消
+                }
+
+                try
+                {
+                    radius = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[1]).Text);
+                    height = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[3]).Text);
+                    segments = uint.Parse(((TextBox)((StackPanel)dialog.Content).Children[5]).Text);
+                    posX = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[7]).Text);
+                    posY = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[9]).Text);
+                    posZ = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[11]).Text);
+                    isValidInput = true;
+                }
+                catch (FormatException)
+                {
+                    // 显示错误提示
+                    var errorDialog = new ContentDialog
+                    {
+                        Title = "输入错误",
+                        Content = "请输入有效的数字",
+                        PrimaryButtonText = "确定",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await errorDialog.ShowAsync();
+                    // 继续循环，让用户重新输入
+                }
+            }
+
             AddGeometryItem("Cylinder", "");
-            ShadeFlowNative.AddCylinderWithParams(0.5f, 1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            ShadeFlowNative.AddCylinderWithParams(radius, height, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加圆锥体菜单项点击事件
-        private void AddConeMenuItem_Click(object sender, RoutedEventArgs e)
+        private async void AddConeMenuItem_Click(object sender, RoutedEventArgs e)
         {
+            // 显示圆锥体参数输入对话框
+            var dialog = new ContentDialog
+            {
+                Title = "添加圆锥体",
+                Content = new StackPanel
+                {
+                    Children = {
+                        new TextBlock { Text = "半径:" },
+                        new TextBox { Name = "RadiusTextBox", Text = "0.5" },
+                        new TextBlock { Text = "高度:" },
+                        new TextBox { Name = "HeightTextBox", Text = "1.0" },
+                        new TextBlock { Text = "分段数:" },
+                        new TextBox { Name = "SegmentsTextBox", Text = "32" },
+                        new TextBlock { Text = "X坐标:" },
+                        new TextBox { Name = "PosXTextBox", Text = "0" },
+                        new TextBlock { Text = "Y坐标:" },
+                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBlock { Text = "Z坐标:" },
+                        new TextBox { Name = "PosZTextBox", Text = "0" }
+                    }
+                },
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot
+            };
+
+            bool isValidInput = false;
+            float radius = 0;
+            float height = 0;
+            uint segments = 0;
+            float posX = 0;
+            float posY = 0;
+            float posZ = 0;
+
+            while (!isValidInput)
+            {
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    return; // 用户取消
+                }
+
+                try
+                {
+                    radius = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[1]).Text);
+                    height = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[3]).Text);
+                    segments = uint.Parse(((TextBox)((StackPanel)dialog.Content).Children[5]).Text);
+                    posX = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[7]).Text);
+                    posY = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[9]).Text);
+                    posZ = float.Parse(((TextBox)((StackPanel)dialog.Content).Children[11]).Text);
+                    isValidInput = true;
+                }
+                catch (FormatException)
+                {
+                    // 显示错误提示
+                    var errorDialog = new ContentDialog
+                    {
+                        Title = "输入错误",
+                        Content = "请输入有效的数字",
+                        PrimaryButtonText = "确定",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await errorDialog.ShowAsync();
+                    // 继续循环，让用户重新输入
+                }
+            }
+
             AddGeometryItem("Cone", "");
-            ShadeFlowNative.AddConeWithParams(0.5f, 1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            ShadeFlowNative.AddConeWithParams(radius, height, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加几何体项到树中

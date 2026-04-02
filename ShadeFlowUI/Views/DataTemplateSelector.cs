@@ -2,7 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ShadeFlow.Models;
 
-namespace ShadeFlow.Views.Tools
+namespace ShadeFlow.Views
 {
     public class PropertyTemplateSelector : DataTemplateSelector
     {
