@@ -11,18 +11,16 @@ const Renderer = @import("../renderer/Renderer.zig").Renderer;
 const ShaderManager = @import("../renderer/ShaderManager.zig").ShaderManager;
 
 // 顶点结构，与着色器中的定义匹配
-// 顶点结构，与着色器中的定义匹配
 pub const Vertex = struct {
     position: [3]f32,
-    // color: [4]f32,
     // color: [4]f32,
 };
 
 // 常量缓冲区结构，与着色器中的定义匹配
 pub const Constants = struct {
-    mView: [4][4]f32,      // 视图矩阵
-    mProj: [4][4]f32,     // 投影矩阵
-    mWorld: [4][4]f32,    // 世界矩阵
+    mView: [4][4]f32, // 视图矩阵
+    mProj: [4][4]f32, // 投影矩阵
+    mWorld: [4][4]f32, // 世界矩阵
     gColor: [4]f32,
     time: f32,
     padding: [3]f32,
@@ -34,7 +32,6 @@ const RenderObject = struct {
     shader: Shader,
 };
 
-// 索引渲染对象结构
 // 索引渲染对象结构
 const IndexedRenderObject = struct {
     vertex_buffer: Buffer,
@@ -102,7 +99,6 @@ pub const Engine = struct {
         // 初始化常量缓冲区
         var constant_buffer = Buffer.init(.constant);
         try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
-
 
         engine.* = Engine{
             .allocator = allocator,
@@ -254,7 +250,7 @@ pub const Engine = struct {
         }
     }
 
-    fn update(self: *Engine) bool {
+    pub fn update(self: *Engine) bool {
         // 处理 Windows 消息
         var msg: win32.MSG = undefined;
         while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
@@ -288,7 +284,7 @@ pub const Engine = struct {
             // 创建旋转矩阵（基于时间的旋转）
             const rotation_x_time = @as(f32, @floatCast(self.time.getTotalTime())) * 0.5; // 每秒旋转半圈
             const rotation_y_time = @as(f32, @floatCast(self.time.getTotalTime())) * 0.3; // 每秒0.3圈
-        
+
             // X轴旋转矩阵
             const rot_x_matrix = [4][4]f32{
                 [4]f32{ 1.0, 0.0, 0.0, 0.0 },
@@ -296,7 +292,7 @@ pub const Engine = struct {
                 [4]f32{ 0.0, -@as(f32, @sin(rotation_x_time)), @as(f32, @cos(rotation_x_time)), 0.0 },
                 [4]f32{ 0.0, 0.0, 0.0, 1.0 },
             };
-        
+
             // Y轴旋转矩阵
             const rot_y_matrix = [4][4]f32{
                 [4]f32{ @as(f32, @cos(rotation_y_time)), 0.0, -@as(f32, @sin(rotation_y_time)), 0.0 },
@@ -304,10 +300,10 @@ pub const Engine = struct {
                 [4]f32{ @as(f32, @sin(rotation_y_time)), 0.0, @as(f32, @cos(rotation_y_time)), 0.0 },
                 [4]f32{ 0.0, 0.0, 0.0, 1.0 },
             };
-        
+
             // 组合旋转矩阵
             const world_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
-        
+
             // 创建简单的视图矩阵（相机在(0,0,3)，看向原点）
             const view_matrix = [4][4]f32{
                 [4]f32{ 1.0, 0.0, 0.0, 0.0 },
@@ -315,18 +311,18 @@ pub const Engine = struct {
                 [4]f32{ 0.0, 0.0, 1.0, 0.0 },
                 [4]f32{ 0.0, 0.0, -3.0, 1.0 }, // 相机位置的负值
             };
-        
+
             // 创建投影矩阵（透视投影）
             const aspect_ratio = @as(f32, @floatFromInt(r.width)) / @as(f32, @floatFromInt(r.height));
             const fov = 1.0; // 45度视角
             const near = 0.1;
             const far = 100.0;
-        
+
             const y_scale = 1.0 / @tan(fov / 2.0);
             const x_scale = y_scale / aspect_ratio;
             const z_scale = -(far + near) / (far - near);
             const z_offset = (-2.0 * far * near) / (far - near);
-            
+
             const proj_matrix = [4][4]f32{
                 [4]f32{ x_scale, 0.0, 0.0, 0.0 },
                 [4]f32{ 0.0, y_scale, 0.0, 0.0 },
@@ -387,7 +383,7 @@ pub const Engine = struct {
     // 矩阵乘法辅助函数
     fn matrixMultiply(self: *const Engine, a: [4][4]f32, b: [4][4]f32) [4][4]f32 {
         _ = self; // 避免未使用参数警告
-    
+
         var result: [4][4]f32 = undefined;
         for (0..4) |i| {
             for (0..4) |j| {

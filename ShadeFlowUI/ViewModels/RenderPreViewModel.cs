@@ -10,7 +10,7 @@ namespace ShadeFlow.ViewModels
     public partial class RenderPreViewModel : ObservableObject
     {
         private static readonly RenderPreViewModel _instance = new RenderPreViewModel();
-        
+
         private bool _isInitialized = false;
         private bool _isDisposed = false;
         private double _dpiScale = 1.0;
@@ -75,18 +75,9 @@ namespace ShadeFlow.ViewModels
                     projectRoot = AppContext.BaseDirectory;
                 }
 
-                string vertexShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TriangleVS.cso");
-                string pixelShaderPath = System.IO.Path.Combine(projectRoot, "ShadeFlowNative", "zig-out", "shaders", "TrianglePS.cso");
 
-                if (!ShadeFlowNative.ShadeFlow_AddTriangleObject(vertexShaderPath, pixelShaderPath))
-                {
-                    System.Diagnostics.Debug.WriteLine("Failed to add triangle object");
-                }
-
-                if (!ShadeFlowNative.ShadeFlow_AddQuadObject(vertexShaderPath, pixelShaderPath))
-                {
-                    System.Diagnostics.Debug.WriteLine("Failed to add quad object");
-                }
+                ShadeFlowNative.AddCubeWithParams(1.0f, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+                ShadeFlowNative.AddSphereWithParams(1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
 
                 _isInitialized = true;
                 IsRendering = true;

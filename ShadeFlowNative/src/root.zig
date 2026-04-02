@@ -4,6 +4,7 @@ const win32 = @import("win32").everything;
 
 const Engine = @import("engine/core/Engine.zig").Engine;
 const Vertex = @import("engine/core/Engine.zig").Vertex;
+const Shapes = @import("engine/core/Shapes.zig").Shapes;
 const Window = @import("engine/optional/Window.zig").Window;
 const Renderer = @import("engine/renderer/Renderer.zig").Renderer;
 
@@ -110,91 +111,11 @@ export fn ShadeFlow_ResizeRenderer(width: u32, height: u32) bool {
 
 // 渲染
 export fn ShadeFlow_RenderFrame() bool {
-    // log(LogLevel.Debug, "[ShadeFlow_RenderFrame] Starting frame render\n", .{});
-
     if (engine_instance) |engine| {
+        _ = engine.update();
         engine.render();
-    }
-    // log(LogLevel.Error, "[ShadeFlow_RenderFrame] Engine not initialized\n", .{});
-    return false;
-}
-
-// 添加三角形渲染对象
-export fn ShadeFlow_AddTriangleObject(
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
-) bool {
-    log(LogLevel.Debug, "[ShadeFlow_AddTriangleObject] Adding triangle object\n", .{});
-
-    if (engine_instance) |engine| {
-        // 将C字符串转换为Zig切片
-        const vertex_shader_path = std.mem.sliceTo(vertex_shader_path_ptr, 0);
-        const pixel_shader_path = std.mem.sliceTo(pixel_shader_path_ptr, 0);
-
-        log(LogLevel.Debug, "[ShadeFlow_AddTriangleObject] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
-
-        // const triangle_vertices = [_]Vertex{
-        //     Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
-        //     Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
-        //     Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
-        // };
-        const triangle_vertices = [_]Vertex{
-            Vertex{ .position = [3]f32{ 0.0, 0.5, 0.0 } },
-            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 } },
-            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 } },
-        };
-        engine.addRenderObject(&triangle_vertices, vertex_shader_path, pixel_shader_path) catch |err| {
-            log(LogLevel.Error, "[ShadeFlow_AddTriangleObject] Failed to add render object: {}\n", .{err});
-            return false;
-        };
-
-        log(LogLevel.Info, "[ShadeFlow_AddTriangleObject] Triangle object added successfully\n", .{});
         return true;
     }
-    log(LogLevel.Error, "[ShadeFlow_AddTriangleObject] Engine not initialized\n", .{});
-    return false;
-}
-
-// 添加四边形渲染对象
-export fn ShadeFlow_AddQuadObject(
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
-) bool {
-    log(LogLevel.Debug, "[ShadeFlow_AddQuadObject] Adding quad object\n", .{});
-
-    if (engine_instance) |engine| {
-        const vertex_shader_path = std.mem.sliceTo(vertex_shader_path_ptr, 0);
-        const pixel_shader_path = std.mem.sliceTo(pixel_shader_path_ptr, 0);
-
-        log(LogLevel.Debug, "[ShadeFlow_AddQuadObject] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
-
-        // const quad_vertices = [_]Vertex{
-        //     Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } },
-        //     Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } },
-        //     Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } },
-        //     Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } },
-        // };
-        const quad_vertices = [_]Vertex{
-            Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 } },
-            Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 } },
-            Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 } },
-            Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 } },
-        };
-
-        const quad_indices = [_]u16{
-            0, 1, 2,
-            0, 2, 3,
-        };
-
-        engine.addIndexedRenderObject(&quad_vertices, &quad_indices, vertex_shader_path, pixel_shader_path) catch |err| {
-            log(LogLevel.Error, "[ShadeFlow_AddQuadObject] Failed to add indexed render object: {}\n", .{err});
-            return false;
-        };
-
-        log(LogLevel.Info, "[ShadeFlow_AddQuadObject] Quad object added successfully\n", .{});
-        return true;
-    }
-    log(LogLevel.Error, "[ShadeFlow_AddQuadObject] Engine not initialized\n", .{});
     return false;
 }
 
@@ -250,6 +171,105 @@ export fn ShadeFlow_RegisterLogCallback(callback: *const anyopaque) void {
     log(LogLevel.Info, "[ShadeFlow_RegisterLogCallback] Log callback registered successfully\n", .{});
 }
 
+// 添加带参数的立方体
+export fn ShadeFlow_AddCubeWithParams(
+    size: f32,
+    vertex_shader_path_ptr: [*:0]const u8,
+    pixel_shader_path_ptr: [*:0]const u8,
+) bool {
+    if (engine_instance) |engine| {
+        const params = Shapes.GeometryParams{
+            .Cube = Shapes.CubeParams{ .size = size },
+        };
+
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cube, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddCubeWithParams] Engine not initialized", .{});
+    return false;
+}
+
+// 添加带参数的球体
+export fn ShadeFlow_AddSphereWithParams(
+    radius: f32,
+    segments: u32,
+    vertex_shader_path_ptr: [*:0]const u8,
+    pixel_shader_path_ptr: [*:0]const u8,
+) bool {
+    if (engine_instance) |engine| {
+        const params = Shapes.GeometryParams{
+            .Sphere = Shapes.SphereParams{ .radius = radius, .segments = segments },
+        };
+
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Sphere, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddSphereWithParams] Engine not initialized", .{});
+    return false;
+}
+
+// 添加带参数的圆柱体
+export fn ShadeFlow_AddCylinderWithParams(
+    radius: f32,
+    height: f32,
+    segments: u32,
+    vertex_shader_path_ptr: [*:0]const u8,
+    pixel_shader_path_ptr: [*:0]const u8,
+) bool {
+    if (engine_instance) |engine| {
+        const params = Shapes.GeometryParams{
+            .Cylinder = Shapes.CylinderParams{ .radius = radius, .height = height, .segments = segments },
+        };
+
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddCylinderWithParams] Engine not initialized", .{});
+    return false;
+}
+
+// 添加带参数的圆锥体
+export fn ShadeFlow_AddConeWithParams(
+    radius: f32,
+    height: f32,
+    segments: u32,
+    vertex_shader_path_ptr: [*:0]const u8,
+    pixel_shader_path_ptr: [*:0]const u8,
+) bool {
+    if (engine_instance) |engine| {
+        const params = Shapes.GeometryParams{
+            .Cone = Shapes.ConeParams{ .radius = radius, .height = height, .segments = segments },
+        };
+
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cone, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddConeWithParams] Engine not initialized", .{});
+    return false;
+}
+
+// 内部函数：添加几何对象
+fn addGeometryObjectInternal(
+    geometry_type: Shapes.GeometryType,
+    vertex_shader_path_ptr: [*:0]const u8,
+    pixel_shader_path_ptr: [*:0]const u8,
+) bool {
+    log(LogLevel.Debug, "[addGeometryObjectInternal] Adding geometry object of type: {}\n", .{geometry_type});
+
+    if (engine_instance) |engine| {
+        const vertex_shader_path = std.mem.sliceTo(vertex_shader_path_ptr, 0);
+        const pixel_shader_path = std.mem.sliceTo(pixel_shader_path_ptr, 0);
+
+        log(LogLevel.Debug, "[addGeometryObjectInternal] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
+
+        Shapes.addGeometryObject(engine, geometry_type, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        log(LogLevel.Info, "[addGeometryObjectInternal] Geometry object added successfully\n", .{});
+        return true;
+    }
+    log(LogLevel.Error, "[addGeometryObjectInternal] Engine not initialized\n", .{});
+    return false;
+}
+
 test "Cube" {
     var Mainwindow = try Window.init(allocator);
     defer Mainwindow.deinit();
@@ -259,18 +279,18 @@ test "Cube" {
 
     var engine = try Engine.init(allocator, size.width, size.height, Mainwindow.hwnd);
 
-    // 创建矩形顶点数据（由两个三角形组成）
+    // 创建矩形顶点数据
     const quad_vertices = [_]Vertex{
-        Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上 - 红色
-        Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上 - 绿色
-        Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下 - 蓝色
-        Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下 - 黄色
+        Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上
+        Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上
+        Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下
+        Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下
     };
 
-    // 矩形索引数据（两个三角形）
+    // 矩形索引数据
     const quad_indices = [_]u16{
-        0, 1, 2, // 第一个三角形
-        0, 2, 3, // 第二个三角形
+        0, 1, 2,
+        0, 2, 3,
     };
 
     // 添加矩形对象

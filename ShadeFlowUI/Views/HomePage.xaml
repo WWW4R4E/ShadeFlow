@@ -21,7 +21,7 @@
             </Grid.ColumnDefinitions>
 
             <Grid x:Name="FilePanel" Grid.Column="0">
-                <controls:ExplorerControl />
+                <controls:ExplorerControl x:Name="explorerControl" />
             </Grid>
 
             <Grid
@@ -109,9 +109,6 @@
                 Background="{ThemeResource CardBackgroundFillColorDefault}">
                 <controls:PropertiesControl />
             </Grid>
-
-
-
         </Grid>
 
         <Grid
