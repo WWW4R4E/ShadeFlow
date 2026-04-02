@@ -174,6 +174,9 @@ export fn ShadeFlow_RegisterLogCallback(callback: *const anyopaque) void {
 // 添加带参数的立方体
 export fn ShadeFlow_AddCubeWithParams(
     size: f32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
     vertex_shader_path_ptr: [*:0]const u8,
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
@@ -182,7 +185,7 @@ export fn ShadeFlow_AddCubeWithParams(
             .Cube = Shapes.CubeParams{ .size = size },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cube, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cube, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCubeWithParams] Engine not initialized", .{});
@@ -193,6 +196,9 @@ export fn ShadeFlow_AddCubeWithParams(
 export fn ShadeFlow_AddSphereWithParams(
     radius: f32,
     segments: u32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
     vertex_shader_path_ptr: [*:0]const u8,
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
@@ -201,7 +207,7 @@ export fn ShadeFlow_AddSphereWithParams(
             .Sphere = Shapes.SphereParams{ .radius = radius, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Sphere, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Sphere, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddSphereWithParams] Engine not initialized", .{});
@@ -213,6 +219,9 @@ export fn ShadeFlow_AddCylinderWithParams(
     radius: f32,
     height: f32,
     segments: u32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
     vertex_shader_path_ptr: [*:0]const u8,
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
@@ -221,7 +230,7 @@ export fn ShadeFlow_AddCylinderWithParams(
             .Cylinder = Shapes.CylinderParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCylinderWithParams] Engine not initialized", .{});
@@ -233,6 +242,9 @@ export fn ShadeFlow_AddConeWithParams(
     radius: f32,
     height: f32,
     segments: u32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
     vertex_shader_path_ptr: [*:0]const u8,
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
@@ -241,32 +253,44 @@ export fn ShadeFlow_AddConeWithParams(
             .Cone = Shapes.ConeParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cone, &params, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cone, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddConeWithParams] Engine not initialized", .{});
     return false;
 }
 
-// 内部函数：添加几何对象
-fn addGeometryObjectInternal(
-    geometry_type: Shapes.GeometryType,
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
+// 添加几何对象（使用默认参数）
+export fn ShadeFlow_AddGeometryObject(
+    geometry_type: c_int,
+    vertex_shader_path: [*:0]const u8,
+    pixel_shader_path: [*:0]const u8,
 ) bool {
-    log(LogLevel.Debug, "[addGeometryObjectInternal] Adding geometry object of type: {}\n", .{geometry_type});
-
     if (engine_instance) |engine| {
-        const vertex_shader_path = std.mem.sliceTo(vertex_shader_path_ptr, 0);
-        const pixel_shader_path = std.mem.sliceTo(pixel_shader_path_ptr, 0);
-
-        log(LogLevel.Debug, "[addGeometryObjectInternal] Vertex shader path: {s}, Pixel shader path: {s}\n", .{ vertex_shader_path, pixel_shader_path });
-
-        Shapes.addGeometryObject(engine, geometry_type, vertex_shader_path_ptr, pixel_shader_path_ptr);
-        log(LogLevel.Info, "[addGeometryObjectInternal] Geometry object added successfully\n", .{});
+        const geom_type = @as(Shapes.GeometryType, @enumFromInt(geometry_type));
+        Shapes.addGeometryObject(engine, geom_type, vertex_shader_path, pixel_shader_path);
         return true;
     }
-    log(LogLevel.Error, "[addGeometryObjectInternal] Engine not initialized\n", .{});
+    log(LogLevel.Error, "[ShadeFlow_AddGeometryObject] Engine not initialized", .{});
+    return false;
+}
+
+// 添加带参数的几何对象
+export fn ShadeFlow_AddGeometryObjectWithParams(
+    geometry_type: c_int,
+    params: *const Shapes.GeometryParams,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    vertex_shader_path: [*:0]const u8,
+    pixel_shader_path: [*:0]const u8,
+) bool {
+    if (engine_instance) |engine| {
+        const geom_type = @as(Shapes.GeometryType, @enumFromInt(geometry_type));
+        Shapes.addGeometryObjectWithParams(engine, geom_type, params, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path);
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddGeometryObjectWithParams] Engine not initialized", .{});
     return false;
 }
 
@@ -294,7 +318,7 @@ test "Cube" {
     };
 
     // 添加矩形对象
-    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso");
+    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso", .{ 0.0, 0.0, 0.0 });
 
     try engine.run();
     defer engine.deinit();

@@ -76,8 +76,8 @@ namespace ShadeFlow.ViewModels
                 }
 
 
-                ShadeFlowNative.AddCubeWithParams(1.0f, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
-                ShadeFlowNative.AddSphereWithParams(1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+                //ShadeFlowNative.AddCubeWithParams(1.0f, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+                //ShadeFlowNative.AddSphereWithParams(1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
 
                 _isInitialized = true;
                 IsRendering = true;

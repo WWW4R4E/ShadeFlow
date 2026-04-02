@@ -72,9 +72,19 @@ pub const Renderer = struct {
             .width = width,
             .height = height,
         };
-
+        // 创建管线资源
         try renderer.createPipelineResources(width, height);
-
+        // 启用深度测试和深度写入，使用小于比较函数（默认常用设置）
+        // 这意味着：
+        // 1. 只有深度值小于深度缓冲区中现有值的像素才会被渲染
+        // 2. 通过测试的像素会更新深度缓冲区
+        // 3. 实现了正确的遮挡关系，近处物体遮挡远处物体
+        // try renderer.setDepthStencilState(true, true, .less);
+        // 设置实体填充模式，不剔除任何面（双面渲染），这对于调试很有帮助
+        // 这意味着：
+        // 1. 实体将以实心模式渲染（而不是线框）
+        // 2. 不剔除任何面，无论是正面还是背面
+        // try renderer.setRasterizerState(.solid, .none);
         return renderer;
     }
 
@@ -158,9 +168,6 @@ pub const Renderer = struct {
         self.swap_chain.present();
     }
 
-    // ... drawTriangleList, drawQuad, setRasterizerState 等方法保持不变 ...
-    // 这些方法与 SwapChain 无关，只与 Context 有关，可以直接复用
-
     pub fn getSwapChain(self: *Renderer) *SwapChain {
         return &self.swap_chain;
     }
@@ -169,42 +176,20 @@ pub const Renderer = struct {
         return self.device.getDeviceContext();
     }
 
-    // 绘制三角形列表
-    // pub fn drawTriangleList(self: *Renderer, vertex_count: u32, start_vertex_location: u32) void {
-    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    //     self.device.device_context.Draw(vertex_count, start_vertex_location);
-    // }
-
-    // 绘制索引三角形列表
-    // pub fn drawIndexedTriangleList(self: *Renderer, index_count: u32, start_index_location: u32, base_vertex_location: i32) void {
-    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    //     self.device.device_context.DrawIndexed(index_count, start_index_location, base_vertex_location);
-    // }
-
-    // 绘制四边形
-    // pub fn drawQuad(self: *Renderer, shader: *Shader, vertex_buffer: *Buffer) void {
-
-    //     // 使用着色器
-    //     shader.use(self.device.device_context);
-
-    //     // 绑定顶点缓冲区
-    //     vertex_buffer.bindVertexBuffer(self.device.device_context, 0);
-
-    //     // 设置拓扑为三角形列表
-    //     self.device.device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    //     // 绘制两个三角形组成的四边形
-    //     self.device.device_context.Draw(6, 0);
-    // }
-
     // 设置光栅化器状态
+    // 参数:
+    // - fill_mode: 填充模式，solid为实体填充，wireframe为线框模式
+    // - cull_mode: 剔除模式，none不剔除，front剔除正面，back剔除背面
+    // 效果:
+    // - 控制多边形的渲染方式，如是否显示为实心或线框
+    // - 通过剔除不需要的面（如背面）提高渲染性能
     pub fn setRasterizerState(self: *Renderer, fill_mode: enum { solid, wireframe }, cull_mode: enum { none, front, back }) !void {
-        const d3d_fill_mode: u32 = switch (fill_mode) {
+        const d3d_fill_mode = switch (fill_mode) {
             .solid => win32.D3D11_FILL_SOLID,
             .wireframe => win32.D3D11_FILL_WIREFRAME,
         };
 
-        const d3d_cull_mode: u32 = switch (cull_mode) {
+        const d3d_cull_mode = switch (cull_mode) {
             .none => win32.D3D11_CULL_NONE,
             .front => win32.D3D11_CULL_FRONT,
             .back => win32.D3D11_CULL_BACK,
@@ -213,21 +198,21 @@ pub const Renderer = struct {
         const rasterizer_desc = win32.D3D11_RASTERIZER_DESC{
             .FillMode = d3d_fill_mode,
             .CullMode = d3d_cull_mode,
-            .FrontCounterClockwise = false,
+            .FrontCounterClockwise = 0,
             .DepthBias = 0,
             .DepthBiasClamp = 0.0,
             .SlopeScaledDepthBias = 0.0,
-            .DepthClipEnable = true,
-            .ScissorEnable = false,
-            .MultisampleEnable = false,
-            .AntialiasedLineEnable = false,
+            .DepthClipEnable = 1,
+            .ScissorEnable = 0,
+            .MultisampleEnable = 0,
+            .AntialiasedLineEnable = 0,
         };
 
-        var rasterizer_state: ?*win32.ID3D11RasterizerState = null;
+        var rasterizer_state: *win32.ID3D11RasterizerState = undefined;
         if (self.device.d3d_device.CreateRasterizerState(&rasterizer_desc, &rasterizer_state) != win32.S_OK) {
             return error.FailedToCreateRasterizerState;
         }
-        defer rasterizer_state.?.Release();
+        defer _ = rasterizer_state.IUnknown.Release();
 
         self.device.getDeviceContext().RSSetState(rasterizer_state);
     }
@@ -262,8 +247,16 @@ pub const Renderer = struct {
     }
 
     // 设置深度/模板状态
+    // 参数:
+    // - depth_enable: 是否启用深度测试
+    // - write_enable: 是否启用深度写入
+    // - comparison_func: 深度比较函数，决定如何进行深度测试
+    // 效果:
+    // - 控制深度缓冲区的使用方式，影响物体的遮挡关系
+    // - 启用深度测试后，只有通过比较的像素才会被渲染
+    // - 启用深度写入后，通过测试的像素会更新深度缓冲区
     pub fn setDepthStencilState(self: *Renderer, depth_enable: bool, write_enable: bool, comparison_func: enum { never, less, equal, less_equal, greater, not_equal, greater_equal, always }) !void {
-        const d3d_comparison_func: u32 = switch (comparison_func) {
+        const d3d_comparison_func = switch (comparison_func) {
             .never => win32.D3D11_COMPARISON_NEVER,
             .less => win32.D3D11_COMPARISON_LESS,
             .equal => win32.D3D11_COMPARISON_EQUAL,
@@ -275,10 +268,10 @@ pub const Renderer = struct {
         };
 
         const depth_stencil_desc = win32.D3D11_DEPTH_STENCIL_DESC{
-            .DepthEnable = depth_enable,
+            .DepthEnable = if (depth_enable) 1 else 0,
             .DepthWriteMask = if (write_enable) win32.D3D11_DEPTH_WRITE_MASK_ALL else win32.D3D11_DEPTH_WRITE_MASK_ZERO,
             .DepthFunc = d3d_comparison_func,
-            .StencilEnable = false,
+            .StencilEnable = 0,
             .StencilReadMask = 0xFF,
             .StencilWriteMask = 0xFF,
             .FrontFace = win32.D3D11_DEPTH_STENCILOP_DESC{
@@ -295,11 +288,11 @@ pub const Renderer = struct {
             },
         };
 
-        var depth_stencil_state: ?*win32.ID3D11DepthStencilState = null;
+        var depth_stencil_state: *win32.ID3D11DepthStencilState = undefined; // 直接用 *T
         if (self.device.d3d_device.CreateDepthStencilState(&depth_stencil_desc, &depth_stencil_state) != win32.S_OK) {
             return error.FailedToCreateDepthStencilState;
         }
-        defer depth_stencil_state.?.Release();
+        defer _ = depth_stencil_state.IUnknown.Release();
 
         self.device.getDeviceContext().OMSetDepthStencilState(depth_stencil_state, 0);
     }

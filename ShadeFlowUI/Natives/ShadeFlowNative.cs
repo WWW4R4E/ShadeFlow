@@ -344,22 +344,28 @@ namespace ShadeFlow.Natives
         /// 添加带参数的立方体
         /// </summary>
         /// <param name="size">立方体大小</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
         /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddCubeWithParams(float size, string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddCubeWithParams(float size, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
         /// 添加带参数的球体
         /// </summary>
         /// <param name="radius">球体半径</param>
         /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
         /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddSphereWithParams(float radius, uint segments, string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddSphereWithParams(float radius, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
         /// 添加带参数的圆柱体
@@ -367,11 +373,14 @@ namespace ShadeFlow.Natives
         /// <param name="radius">圆柱体半径</param>
         /// <param name="height">圆柱体高度</param>
         /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
         /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddCylinderWithParams(float radius, float height, uint segments, string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddCylinderWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
         /// 添加带参数的圆锥体
@@ -379,28 +388,34 @@ namespace ShadeFlow.Natives
         /// <param name="radius">圆锥体底面半径</param>
         /// <param name="height">圆锥体高度</param>
         /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
         /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddConeWithParams(float radius, float height, uint segments, string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddConeWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path);
 
 
         /// <summary>
         /// 添加带参数的立方体的包装方法
         /// </summary>
         /// <param name="size">立方体大小</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
-        public static void AddCubeWithParams(float size, string vertex_shader_path, string pixel_shader_path)
+        public static void AddCubeWithParams(float size, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path)
         {
             try
             {
-                if (!ShadeFlow_AddCubeWithParams(size, vertex_shader_path, pixel_shader_path))
+                if (!ShadeFlow_AddCubeWithParams(size, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path))
                 {
                     throw new Exception("Failed to add cube with params to renderer");
                 }
-                Debug.WriteLine($"Cube with size {size} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"Cube with size {size} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
@@ -410,21 +425,35 @@ namespace ShadeFlow.Natives
         }
 
         /// <summary>
+        /// 添加带参数的立方体的包装方法（默认位置）
+        /// </summary>
+        /// <param name="size">立方体大小</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        public static void AddCubeWithParams(float size, string vertex_shader_path, string pixel_shader_path)
+        {
+            AddCubeWithParams(size, 0.0f, 0.0f, 0.0f, vertex_shader_path, pixel_shader_path);
+        }
+
+        /// <summary>
         /// 添加带参数的球体的包装方法
         /// </summary>
         /// <param name="radius">球体半径</param>
         /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
-        public static void AddSphereWithParams(float radius, uint segments, string vertex_shader_path, string pixel_shader_path)
+        public static void AddSphereWithParams(float radius, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path)
         {
             try
             {
-                if (!ShadeFlow_AddSphereWithParams(radius, segments, vertex_shader_path, pixel_shader_path))
+                if (!ShadeFlow_AddSphereWithParams(radius, segments, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path))
                 {
                     throw new Exception("Failed to add sphere with params to renderer");
                 }
-                Debug.WriteLine($"Sphere with radius {radius} and segments {segments} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"Sphere with radius {radius}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
@@ -434,22 +463,37 @@ namespace ShadeFlow.Natives
         }
 
         /// <summary>
+        /// 添加带参数的球体的包装方法（默认位置）
+        /// </summary>
+        /// <param name="radius">球体半径</param>
+        /// <param name="segments">分段数</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        public static void AddSphereWithParams(float radius, uint segments, string vertex_shader_path, string pixel_shader_path)
+        {
+            AddSphereWithParams(radius, segments, 0.0f, 0.0f, 0.0f, vertex_shader_path, pixel_shader_path);
+        }
+
+        /// <summary>
         /// 添加带参数的圆柱体的包装方法
         /// </summary>
         /// <param name="radius">圆柱体半径</param>
         /// <param name="height">圆柱体高度</param>
         /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
         /// <param name="vertex_shader_path">顶点着色器路径</param>
         /// <param name="pixel_shader_path">像素着色器路径</param>
-        public static void AddCylinderWithParams(float radius, float height, uint segments, string vertex_shader_path, string pixel_shader_path)
+        public static void AddCylinderWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path)
         {
             try
             {
-                if (!ShadeFlow_AddCylinderWithParams(radius, height, segments, vertex_shader_path, pixel_shader_path))
+                if (!ShadeFlow_AddCylinderWithParams(radius, height, segments, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path))
                 {
                     throw new Exception("Failed to add cylinder with params to renderer");
                 }
-                Debug.WriteLine($"Cylinder with radius {radius}, height {height}, and segments {segments} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"Cylinder with radius {radius}, height {height}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
@@ -459,7 +503,48 @@ namespace ShadeFlow.Natives
         }
 
         /// <summary>
+        /// 添加带参数的圆柱体的包装方法（默认位置）
+        /// </summary>
+        /// <param name="radius">圆柱体半径</param>
+        /// <param name="height">圆柱体高度</param>
+        /// <param name="segments">分段数</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        public static void AddCylinderWithParams(float radius, float height, uint segments, string vertex_shader_path, string pixel_shader_path)
+        {
+            AddCylinderWithParams(radius, height, segments, 0.0f, 0.0f, 0.0f, vertex_shader_path, pixel_shader_path);
+        }
+
+        /// <summary>
         /// 添加带参数的圆锥体的包装方法
+        /// </summary>
+        /// <param name="radius">圆锥体底面半径</param>
+        /// <param name="height">圆锥体高度</param>
+        /// <param name="segments">分段数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        public static void AddConeWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path)
+        {
+            try
+            {
+                if (!ShadeFlow_AddConeWithParams(radius, height, segments, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path))
+                {
+                    throw new Exception("Failed to add cone with params to renderer");
+                }
+                Debug.WriteLine($"Cone with radius {radius}, height {height}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error adding cone with params: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 添加带参数的圆锥体的包装方法（默认位置）
         /// </summary>
         /// <param name="radius">圆锥体底面半径</param>
         /// <param name="height">圆锥体高度</param>
@@ -468,20 +553,45 @@ namespace ShadeFlow.Natives
         /// <param name="pixel_shader_path">像素着色器路径</param>
         public static void AddConeWithParams(float radius, float height, uint segments, string vertex_shader_path, string pixel_shader_path)
         {
-            try
-            {
-                if (!ShadeFlow_AddConeWithParams(radius, height, segments, vertex_shader_path, pixel_shader_path))
-                {
-                    throw new Exception("Failed to add cone with params to renderer");
-                }
-                Debug.WriteLine($"Cone with radius {radius}, height {height}, and segments {segments} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error adding cone with params: {ex.Message}");
-                throw;
-            }
+            AddConeWithParams(radius, height, segments, 0.0f, 0.0f, 0.0f, vertex_shader_path, pixel_shader_path);
         }
+
+        /// <summary>
+        /// 几何形状类型枚举
+        /// </summary>
+        public enum GeometryType
+        {
+            Triangle = 0,
+            Quad = 1,
+            Cube = 2,
+            Sphere = 3,
+            Cylinder = 4,
+            Cone = 5
+        }
+
+        /// <summary>
+        /// 添加几何对象（使用默认参数）
+        /// </summary>
+        /// <param name="geometry_type">几何形状类型</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        /// <returns>是否成功添加</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern bool ShadeFlow_AddGeometryObject(int geometry_type, string vertex_shader_path, string pixel_shader_path);
+
+        /// <summary>
+        /// 添加带参数的几何对象
+        /// </summary>
+        /// <param name="geometry_type">几何形状类型</param>
+        /// <param name="params">几何形状参数</param>
+        /// <param name="pos_x">X坐标</param>
+        /// <param name="pos_y">Y坐标</param>
+        /// <param name="pos_z">Z坐标</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        /// <returns>是否成功添加</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern bool ShadeFlow_AddGeometryObjectWithParams(int geometry_type, IntPtr @params, float pos_x, float pos_y, float pos_z, string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
         /// 释放引擎资源的包装方法
@@ -545,6 +655,29 @@ namespace ShadeFlow.Natives
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error during cleanup: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 添加几何对象的包装方法（使用默认参数）
+        /// </summary>
+        /// <param name="geometry_type">几何形状类型</param>
+        /// <param name="vertex_shader_path">顶点着色器路径</param>
+        /// <param name="pixel_shader_path">像素着色器路径</param>
+        public static void AddGeometryObject(GeometryType geometry_type, string vertex_shader_path, string pixel_shader_path)
+        {
+            try
+            {
+                if (!ShadeFlow_AddGeometryObject((int)geometry_type, vertex_shader_path, pixel_shader_path))
+                {
+                    throw new Exception("Failed to add geometry object");
+                }
+                Debug.WriteLine($"Geometry object of type {geometry_type} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error adding geometry object: {ex.Message}");
                 throw;
             }
         }

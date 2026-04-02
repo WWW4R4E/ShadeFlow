@@ -15,6 +15,16 @@
         <DesktopAcrylicBackdrop />
     </Window.SystemBackdrop>
     <Grid>
+        <Grid.Resources>
+            <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Width" Value="48"/>
+                <Setter Property="Height" Value="48"/>
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
@@ -22,15 +32,6 @@
         <TitleBar x:Name="AppTitleBar">
             <TitleBar.LeftHeader>
                 <StackPanel Orientation="Horizontal">
-                    <StackPanel.Resources>
-                        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-                            <Setter Property="BorderThickness" Value="0" />
-                            <Setter Property="Padding" Value="12,2" />
-                            <Setter Property="FontSize" Value="12" />
-                        </Style>
-                    </StackPanel.Resources>
                     <ImageIcon
                         Width="18"
                         Height="18"
@@ -62,7 +63,24 @@
                     </MenuBar>
                 </StackPanel>
             </TitleBar.LeftHeader>
+            <TitleBar.RightHeader>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,160,0" >
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform X="280" />
+                    </StackPanel.RenderTransform>
+                    <Button Style="{StaticResource TitleBarButtonStyle}" Click="MainSidebar_Click" ToolTipService.ToolTip="主侧边栏">
+                        <SymbolIcon Symbol="DockLeft" />
+                    </Button>
+                    <Button Style="{StaticResource TitleBarButtonStyle}" Click="StatusBar_Click" ToolTipService.ToolTip="状态栏">
+                        <SymbolIcon Symbol="DockBottom" />
+                    </Button>
+                    <Button Style="{StaticResource TitleBarButtonStyle}" Click="SecondarySidebar_Click" ToolTipService.ToolTip="辅助侧边栏">
+                        <SymbolIcon Symbol="DockRight" />
+                    </Button>
+                </StackPanel>
+            </TitleBar.RightHeader>
         </TitleBar>
+
         <views:HomePage Grid.Row="1" />
     </Grid>
 

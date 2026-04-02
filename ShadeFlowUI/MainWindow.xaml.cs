@@ -13,7 +13,7 @@ namespace ShadeFlow
     {
       this.ExtendsContentIntoTitleBar = true;
       AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
-      SetTitleBar(AppTitleBar);
+      //SetTitleBar(AppTitleBar);
       InitializeComponent();
     }
 
