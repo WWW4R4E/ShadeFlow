@@ -220,11 +220,11 @@ pub const Shapes = struct {
             i += 3;
         }
 
-        // 底面三角形
+        // 底面三角形（逆时针顺序）
         for (0..segments) |seg| {
             indices[i] = 1;
-            indices[i + 1] = @as(u16, @intCast(3 + seg * 2));
-            indices[i + 2] = @as(u16, @intCast(3 + ((seg + 1) % segments) * 2));
+            indices[i + 1] = @as(u16, @intCast(3 + ((seg + 1) % segments) * 2));
+            indices[i + 2] = @as(u16, @intCast(3 + seg * 2));
             i += 3;
         }
 
@@ -293,19 +293,34 @@ pub const Shapes = struct {
             i += 3;
         }
 
-        // 底面三角形
+        // 底面三角形（逆时针顺序）
         for (0..segments) |seg| {
             indices[i] = 1;
-            indices[i + 1] = @as(u16, @intCast(2 + seg));
-            indices[i + 2] = @as(u16, @intCast(2 + ((seg + 1) % segments)));
+            indices[i + 1] = @as(u16, @intCast(2 + ((seg + 1) % segments)));
+            indices[i + 2] = @as(u16, @intCast(2 + seg));
             i += 3;
         }
 
         return .{ .vertices = vertices, .indices = indices };
     }
 
+    // 添加几何对象（使用默认参数）
+    fn addGeometryObject(engine: *Engine, geometry_type: GeometryType, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
+        // 使用默认参数创建几何体
+        const params = switch (geometry_type) {
+            .Cube => GeometryParams{ .Cube = CubeParams{} },
+            .Sphere => GeometryParams{ .Sphere = SphereParams{} },
+            .Cylinder => GeometryParams{ .Cylinder = CylinderParams{} },
+            .Cone => GeometryParams{ .Cone = ConeParams{} },
+            else => return,
+        };
+
+        // 调用带参数的函数，位置默认为原点
+        addGeometryObjectWithParams(engine, geometry_type, &params, 0.0, 0.0, 0.0, vertex_shader_path, pixel_shader_path);
+    }
+
     // 添加带参数的几何对象
-    pub export fn addGeometryObjectWithParams(engine: *Engine, geometry_type: GeometryType, params: *const GeometryParams, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
+    fn addGeometryObjectWithParams(engine: *Engine, geometry_type: GeometryType, params: *const GeometryParams, pos_x: f32, pos_y: f32, pos_z: f32, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
         const allocator = std.heap.page_allocator;
         // 由于export导出给了C ABI，所以这里的路径参数是[*:0]const u8，zig内部又需要转换为[]u8
         const vertex_path = std.mem.sliceTo(vertex_shader_path, 0);
@@ -322,7 +337,7 @@ pub const Shapes = struct {
                     allocator.free(geometry.vertices);
                     allocator.free(geometry.indices);
                 }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path) catch |err| {
+                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
                     std.debug.print("Error adding cube: {}", .{err});
                 };
             },
@@ -336,7 +351,7 @@ pub const Shapes = struct {
                     allocator.free(geometry.vertices);
                     allocator.free(geometry.indices);
                 }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path) catch |err| {
+                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
                     std.debug.print("Error adding sphere: {}", .{err});
                 };
             },
@@ -350,7 +365,7 @@ pub const Shapes = struct {
                     allocator.free(geometry.vertices);
                     allocator.free(geometry.indices);
                 }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path) catch |err| {
+                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
                     std.debug.print("Error adding cylinder: {}", .{err});
                 };
             },
@@ -364,7 +379,7 @@ pub const Shapes = struct {
                     allocator.free(geometry.vertices);
                     allocator.free(geometry.indices);
                 }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path) catch |err| {
+                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
                     std.debug.print("Error adding cone: {}", .{err});
                 };
             },

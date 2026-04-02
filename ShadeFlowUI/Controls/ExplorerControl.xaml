@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:ShadeFlow.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:ShadeFlow.Models"
     d:DesignHeight="300"
     d:DesignWidth="400"
     mc:Ignorable="d">
@@ -29,19 +30,6 @@
                 FontWeight="SemiBold"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Text="资源管理器" />
-
-            <Button
-                x:Name="CollapseAllButton"
-                Grid.Column="1"
-                Width="24"
-                Height="24"
-                Margin="0,0,8,0"
-                Background="Transparent"
-                BorderThickness="0"
-                Click="CollapseAllButton_Click"
-                Content="−"
-                FontSize="16"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </Grid>
 
         <!--  文件树  -->
@@ -51,10 +39,67 @@
             Margin="6,8,6,8"
             AllowDrop="True"
             CanDragItems="True"
-            CanReorderItems="True">
+            CanReorderItems="True"
+            RightTapped="FileTreeView_RightTapped">
+            <TreeView.Resources>
+                <MenuFlyout x:Name="ItemContextMenu" Placement="Bottom">
+                    <MenuFlyoutItem x:Name="OpenItem" Text="打开" Click="OpenItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="Enter" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator/>
+                    <MenuFlyoutItem x:Name="CutItem" Text="剪切" Click="CutItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="X" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Name="CopyItem" Text="复制" Click="CopyItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="C" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Name="PasteItem" Text="粘贴" Click="PasteItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="V" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator/>
+                    <MenuFlyoutItem x:Name="DeleteItem" Text="删除" Click="DeleteItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="Delete" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Name="RenameItem" Text="重命名" Click="RenameItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F2" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                </MenuFlyout>
+            </TreeView.Resources>
+            <TreeView.ContextFlyout>
+                <MenuFlyout>
+                    <MenuFlyoutItem x:Name="NewFolderItem" Text="新建文件夹" Click="NewFolderItem_Click"/>
+                    <MenuFlyoutItem x:Name="NewItem" Text="新建文件" Click="NewItem_Click"/>
+                    <MenuFlyoutSeparator/>
+                    <MenuFlyoutItem x:Name="PasteItemRoot" Text="粘贴" Click="PasteItem_Click">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="V" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                </MenuFlyout>
+            </TreeView.ContextFlyout>
             <TreeView.ItemTemplate>
-                <DataTemplate x:DataType="local:TreeViewItemModel">
+                <DataTemplate x:DataType="models:TreeViewItemModel">
                     <TreeViewItem IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" ItemsSource="{x:Bind Children, Mode=OneWay}">
+                        <TreeViewItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="Delete" Invoked="TreeViewItem_DeleteAccelerator_Invoked" />
+                            <KeyboardAccelerator Key="F2" Invoked="TreeViewItem_RenameAccelerator_Invoked" />
+                            <KeyboardAccelerator Key="Enter" Invoked="TreeViewItem_OpenAccelerator_Invoked" />
+                            <KeyboardAccelerator Modifiers="Control" Key="X" Invoked="TreeViewItem_CutAccelerator_Invoked" />
+                            <KeyboardAccelerator Modifiers="Control" Key="C" Invoked="TreeViewItem_CopyAccelerator_Invoked" />
+                            <KeyboardAccelerator Modifiers="Control" Key="V" Invoked="TreeViewItem_PasteAccelerator_Invoked" />
+                        </TreeViewItem.KeyboardAccelerators>
                         <StackPanel Orientation="Horizontal">
                             <FontIcon
                                 Margin="0,0,6,0"

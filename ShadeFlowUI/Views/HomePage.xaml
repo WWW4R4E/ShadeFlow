@@ -21,7 +21,26 @@
             </Grid.ColumnDefinitions>
 
             <Grid x:Name="FilePanel" Grid.Column="0">
-                <controls:ExplorerControl x:Name="explorerControl" />
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="6" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <controls:SceneTreeControl Grid.Row="0" />
+
+                <Grid Grid.Row="1" Background="{ThemeResource CardStrokeColorDefault}">
+                    <Border
+                        x:Name="HorizontalVisualLine2"
+                        Width="120"
+                        Height="6"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{ThemeResource TextFillColorTertiaryBrush}"
+                        CornerRadius="5" />
+                </Grid>
+
+                <controls:ExplorerControl x:Name="explorerControl" Grid.Row="2" />
             </Grid>
 
             <Grid
@@ -78,7 +97,7 @@
             <Grid
                 x:Name="HorizontalHoverZone"
                 Grid.Column="2"
-                Width="400"
+                Width="250"
                 Height="25"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Top"
@@ -114,9 +133,9 @@
         <Grid
             x:Name="VerticalHoverZone1"
             Width="25"
-            Height="400"
+            Height="250"
             HorizontalAlignment="Left"
-            VerticalAlignment="Center"
+            VerticalAlignment="Top"
             Background="Transparent"
             PointerEntered="VerticalHoverZone1_PointerEntered"
             PointerExited="VerticalHoverZone1_PointerExited"
@@ -127,9 +146,9 @@
         <Grid
             x:Name="VerticalHoverZone2"
             Width="25"
-            Height="400"
+            Height="250"
             HorizontalAlignment="Right"
-            VerticalAlignment="Center"
+            VerticalAlignment="Bottom"
             Background="Transparent"
             PointerEntered="VerticalHoverZone2_PointerEntered"
             PointerExited="VerticalHoverZone2_PointerExited"

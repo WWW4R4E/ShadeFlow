@@ -30,6 +30,9 @@ pub const Constants = struct {
 const RenderObject = struct {
     vertex_buffer: Buffer,
     shader: Shader,
+    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    rotation: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    scale: [3]f32 = .{ 1.0, 1.0, 1.0 },
 };
 
 // 索引渲染对象结构
@@ -38,6 +41,9 @@ const IndexedRenderObject = struct {
     index_buffer: Buffer,
     shader: Shader,
     index_count: u32,
+    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    rotation: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    scale: [3]f32 = .{ 1.0, 1.0, 1.0 },
 };
 
 pub const Engine = struct {
@@ -55,7 +61,6 @@ pub const Engine = struct {
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
         var renderer = try Renderer.initForComposition(width, height);
         errdefer renderer.deinit();
-
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
@@ -114,7 +119,7 @@ pub const Engine = struct {
     }
 
     // 添加渲染对象
-    pub fn addRenderObject(self: *Engine, vertices: []const Vertex, vertex_shader_path: []const u8, pixel_shader_path: []const u8) !void {
+    pub fn addRenderObject(self: *Engine, vertices: []const Vertex, vertex_shader_path: []const u8, pixel_shader_path: []const u8, position: [3]f32) !void {
         // 初始化顶点缓冲区
         var vertex_buffer = Buffer.init(.vertex);
         try vertex_buffer.createVertexBuffer(self.renderer.?.getDevice(), std.mem.sliceAsBytes(vertices), @sizeOf(Vertex), .immutable);
@@ -157,11 +162,12 @@ pub const Engine = struct {
         try self.render_objects.append(self.allocator, RenderObject{
             .vertex_buffer = vertex_buffer,
             .shader = shader,
+            .position = position,
         });
     }
 
     // 新增：添加带索引的渲染对象
-    pub fn addIndexedRenderObject(self: *Engine, vertices: []const Vertex, indices: []const u16, vertex_shader_path: []const u8, pixel_shader_path: []const u8) !void {
+    pub fn addIndexedRenderObject(self: *Engine, vertices: []const Vertex, indices: []const u16, vertex_shader_path: []const u8, pixel_shader_path: []const u8, position: [3]f32) !void {
         // 初始化顶点缓冲区
         var vertex_buffer = Buffer.init(.vertex);
         try vertex_buffer.createVertexBuffer(self.renderer.?.getDevice(), std.mem.sliceAsBytes(vertices), @sizeOf(Vertex), .immutable);
@@ -210,7 +216,9 @@ pub const Engine = struct {
             .vertex_buffer = vertex_buffer,
             .index_buffer = index_buffer,
             .shader = shader,
-            .index_count = @intCast(indices.len),
+            //  .index_count = @intCast(indices.len),
+            .index_count = @as(u32, @intCast(indices.len)),
+            .position = position,
         });
     }
 
@@ -281,29 +289,6 @@ pub const Engine = struct {
         if (self.renderer) |*r| {
             r.beginFrame([4]f32{ 0.2, 0.2, 0.3, 1.0 });
 
-            // 创建旋转矩阵（基于时间的旋转）
-            const rotation_x_time = @as(f32, @floatCast(self.time.getTotalTime())) * 0.5; // 每秒旋转半圈
-            const rotation_y_time = @as(f32, @floatCast(self.time.getTotalTime())) * 0.3; // 每秒0.3圈
-
-            // X轴旋转矩阵
-            const rot_x_matrix = [4][4]f32{
-                [4]f32{ 1.0, 0.0, 0.0, 0.0 },
-                [4]f32{ 0.0, @as(f32, @cos(rotation_x_time)), @as(f32, @sin(rotation_x_time)), 0.0 },
-                [4]f32{ 0.0, -@as(f32, @sin(rotation_x_time)), @as(f32, @cos(rotation_x_time)), 0.0 },
-                [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-            };
-
-            // Y轴旋转矩阵
-            const rot_y_matrix = [4][4]f32{
-                [4]f32{ @as(f32, @cos(rotation_y_time)), 0.0, -@as(f32, @sin(rotation_y_time)), 0.0 },
-                [4]f32{ 0.0, 1.0, 0.0, 0.0 },
-                [4]f32{ @as(f32, @sin(rotation_y_time)), 0.0, @as(f32, @cos(rotation_y_time)), 0.0 },
-                [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-            };
-
-            // 组合旋转矩阵
-            const world_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
-
             // 创建简单的视图矩阵（相机在(0,0,3)，看向原点）
             const view_matrix = [4][4]f32{
                 [4]f32{ 1.0, 0.0, 0.0, 0.0 },
@@ -330,25 +315,37 @@ pub const Engine = struct {
                 [4]f32{ 0.0, 0.0, z_offset, 0.0 },
             };
 
-            // 更新常量缓冲区
-            const constants = Constants{
-                .mView = view_matrix,
-                .mProj = proj_matrix,
-                .mWorld = world_matrix,
-                .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
-                .time = @floatCast(self.time.getTotalTime()),
-                .padding = [3]f32{ 0.0, 0.0, 0.0 },
-            };
-            self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
-                std.debug.print("Failed to update constant buffer: {}\n", .{err});
-            };
-
-            // 绑定常量缓冲区到顶点着色器的 b0 槽位
-            self.constant_buffer.bindConstantBufferVS(r.getDeviceContext(), 0);
-            // 绑定常量缓冲区到像素着色器的 b0 槽位
-            self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
-
+            // 渲染普通对象
             for (self.render_objects.items) |render_object| {
+                // 为每个对象计算世界矩阵
+                const translate_matrix = self.createTranslationMatrix(render_object.position[0], render_object.position[1], render_object.position[2]);
+
+                // 组合旋转矩阵
+                const rot_x_matrix = self.createRotationXMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.5)));
+                const rot_y_matrix = self.createRotationYMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.3)));
+                const rotate_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
+
+                // 组合世界矩阵
+                const world_matrix = self.matrixMultiply(translate_matrix, rotate_matrix);
+
+                // 更新常量缓冲区
+                const constants = Constants{
+                    .mView = view_matrix,
+                    .mProj = proj_matrix,
+                    .mWorld = world_matrix,
+                    .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
+                    .time = @floatCast(self.time.getTotalTime()),
+                    .padding = [3]f32{ 0.0, 0.0, 0.0 },
+                };
+                self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
+                    std.debug.print("Failed to update constant buffer: {}\n", .{err});
+                };
+
+                // 绑定常量缓冲区到顶点着色器的 b0 槽位
+                self.constant_buffer.bindConstantBufferVS(r.getDeviceContext(), 0);
+                // 绑定常量缓冲区到像素着色器的 b0 槽位
+                self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
+
                 // 设置渲染状态
                 render_object.shader.use(r.getDeviceContext());
                 render_object.vertex_buffer.bindVertexBuffer(r.getDeviceContext(), 0);
@@ -359,10 +356,35 @@ pub const Engine = struct {
             }
 
             // 渲染索引对象
+            for (self.indexed_render_objects.items) |indexed_render_object| {
+                // 为每个对象计算世界矩阵
+                const translate_matrix = self.createTranslationMatrix(indexed_render_object.position[0], indexed_render_object.position[1], indexed_render_object.position[2]);
 
-            for (
-                self.indexed_render_objects.items,
-            ) |indexed_render_object| {
+                // 组合旋转矩阵
+                const rot_x_matrix = self.createRotationXMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.5)));
+                const rot_y_matrix = self.createRotationYMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.3)));
+                const rotate_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
+
+                // 组合世界矩阵
+                const world_matrix = self.matrixMultiply(translate_matrix, rotate_matrix);
+
+                // 更新常量缓冲区
+                const constants = Constants{
+                    .mView = view_matrix,
+                    .mProj = proj_matrix,
+                    .mWorld = world_matrix,
+                    .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
+                    .time = @floatCast(self.time.getTotalTime()),
+                    .padding = [3]f32{ 0.0, 0.0, 0.0 },
+                };
+                self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
+                    std.debug.print("Failed to update constant buffer: {}\n", .{err});
+                };
+
+                // 绑定常量缓冲区到顶点着色器的 b0 槽位
+                self.constant_buffer.bindConstantBufferVS(r.getDeviceContext(), 0);
+                // 绑定常量缓冲区到像素着色器的 b0 槽位
+                self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
 
                 // 设置渲染状态
                 indexed_render_object.shader.use(r.getDeviceContext());
@@ -394,6 +416,67 @@ pub const Engine = struct {
             }
         }
         return result;
+    }
+
+    // 创建平移矩阵
+    fn createTranslationMatrix(self: *const Engine, x: f32, y: f32, z: f32) [4][4]f32 {
+        _ = self; // 避免未使用参数警告
+        return [4][4]f32{
+            [4]f32{ 1.0, 0.0, 0.0, 0.0 },
+            [4]f32{ 0.0, 1.0, 0.0, 0.0 },
+            [4]f32{ 0.0, 0.0, 1.0, 0.0 },
+            [4]f32{ x, y, z, 1.0 },
+        };
+    }
+
+    // 创建X轴旋转矩阵
+    fn createRotationXMatrix(self: *const Engine, angle: f32) [4][4]f32 {
+        _ = self; // 避免未使用参数警告
+        const c = @cos(angle);
+        const s = @sin(angle);
+        return [4][4]f32{
+            [4]f32{ 1.0, 0.0, 0.0, 0.0 },
+            [4]f32{ 0.0, c, -s, 0.0 },
+            [4]f32{ 0.0, s, c, 0.0 },
+            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
+    // 创建Y轴旋转矩阵
+    fn createRotationYMatrix(self: *const Engine, angle: f32) [4][4]f32 {
+        _ = self; // 避免未使用参数警告
+        const c = @cos(angle);
+        const s = @sin(angle);
+        return [4][4]f32{
+            [4]f32{ c, 0.0, s, 0.0 },
+            [4]f32{ 0.0, 1.0, 0.0, 0.0 },
+            [4]f32{ -s, 0.0, c, 0.0 },
+            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
+    // 创建Z轴旋转矩阵
+    fn createRotationZMatrix(self: *const Engine, angle: f32) [4][4]f32 {
+        _ = self; // 避免未使用参数警告
+        const c = @cos(angle);
+        const s = @sin(angle);
+        return [4][4]f32{
+            [4]f32{ c, -s, 0.0, 0.0 },
+            [4]f32{ s, c, 0.0, 0.0 },
+            [4]f32{ 0.0, 0.0, 1.0, 0.0 },
+            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
+    // 创建缩放矩阵
+    fn createScaleMatrix(self: *const Engine, x: f32, y: f32, z: f32) [4][4]f32 {
+        _ = self; // 避免未使用参数警告
+        return [4][4]f32{
+            [4]f32{ x, 0.0, 0.0, 0.0 },
+            [4]f32{ 0.0, y, 0.0, 0.0 },
+            [4]f32{ 0.0, 0.0, z, 0.0 },
+            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
+        };
     }
 
     // 处理窗口大小变化
