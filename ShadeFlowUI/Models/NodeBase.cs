@@ -1,4 +1,4 @@
-using ShadeFlow.Controls;
+using ShadeFlow.Views.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.ObjectModel;
 

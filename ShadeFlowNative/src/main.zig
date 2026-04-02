@@ -18,6 +18,7 @@ pub fn main() !void {
     const size = Mainwindow.getClientSize();
 
     var engine = try Engine.initForHwnd(allocator, Mainwindow.hwnd, size.width, size.height);
+    engine.setWindow(Mainwindow);
     defer {
         engine.deinit();
         allocator.destroy(engine);

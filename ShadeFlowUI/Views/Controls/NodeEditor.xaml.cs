@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using ShadeFlow.ViewModels;
 using System.Collections;
 using System.Windows.Input;
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class NodeEditor : ScrollView
     {

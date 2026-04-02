@@ -294,32 +294,37 @@ export fn ShadeFlow_AddGeometryObjectWithParams(
     return false;
 }
 
-test "Cube" {
-    var Mainwindow = try Window.init(allocator);
-    defer Mainwindow.deinit();
-    Mainwindow.show();
+// 相机控制相关函数
 
-    const size = Mainwindow.getClientSize();
+// 获取相机位置
+export fn ShadeFlow_GetCameraPosition(x: *f32, y: *f32, z: *f32) void {
+    if (engine_instance) |engine| {
+        x.* = engine.camera_position[0];
+        y.* = engine.camera_position[1];
+        z.* = engine.camera_position[2];
+    }
+}
 
-    var engine = try Engine.init(allocator, size.width, size.height, Mainwindow.hwnd);
+// 设置相机位置
+export fn ShadeFlow_SetCameraPosition(x: f32, y: f32, z: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera_position = .{ x, y, z };
+        engine.target_camera_position = .{ x, y, z };
+    }
+}
 
-    // 创建矩形顶点数据
-    const quad_vertices = [_]Vertex{
-        Vertex{ .position = [3]f32{ -0.5, 0.5, 0.0 }, .color = [4]f32{ 1.0, 0.0, 0.0, 1.0 } }, // 左上
-        Vertex{ .position = [3]f32{ 0.5, 0.5, 0.0 }, .color = [4]f32{ 0.0, 1.0, 0.0, 1.0 } }, // 右上
-        Vertex{ .position = [3]f32{ 0.5, -0.5, 0.0 }, .color = [4]f32{ 0.0, 0.0, 1.0, 1.0 } }, // 右下
-        Vertex{ .position = [3]f32{ -0.5, -0.5, 0.0 }, .color = [4]f32{ 1.0, 1.0, 0.0, 1.0 } }, // 左下
-    };
+// 获取相机距离
+export fn ShadeFlow_GetCameraDistance() f32 {
+    if (engine_instance) |engine| {
+        return engine.camera_distance;
+    }
+    return 3.0;
+}
 
-    // 矩形索引数据
-    const quad_indices = [_]u16{
-        0, 1, 2,
-        0, 2, 3,
-    };
-
-    // 添加矩形对象
-    try engine.addIndexedRenderObject(&quad_vertices, &quad_indices, "zig-out/shaders/TriangleVS.cso", "zig-out/shaders/TrianglePS.cso", .{ 0.0, 0.0, 0.0 });
-
-    try engine.run();
-    defer engine.deinit();
+// 设置相机距离
+export fn ShadeFlow_SetCameraDistance(distance: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera_distance = distance;
+        engine.target_camera_distance = distance;
+    }
 }

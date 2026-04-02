@@ -3,6 +3,8 @@ const std = @import("std");
 const win32 = @import("win32").everything;
 
 const Time = @import("../../utils/Time.zig").Time;
+const Input = @import("../optional/Input.zig").Input;
+const Window = @import("../optional/Window.zig").Window;
 const Buffer = @import("../renderer/d3d11/Buffer.zig").Buffer;
 const Device = @import("../renderer/d3d11/Device.zig").Device;
 const Shader = @import("../renderer/d3d11/Shader.zig").Shader;
@@ -48,6 +50,7 @@ const IndexedRenderObject = struct {
 
 pub const Engine = struct {
     hwnd: ?win32.HWND,
+    window: ?*Window = null,
     allocator: std.mem.Allocator,
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
@@ -56,6 +59,11 @@ pub const Engine = struct {
     size_changed: bool = false,
     time: Time,
     constant_buffer: Buffer,
+    input: Input,
+    camera_position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    target_camera_position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    camera_distance: f32 = 3.0,
+    target_camera_distance: f32 = 3.0,
 
     // 为 Composition 初始化引擎
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
@@ -83,6 +91,11 @@ pub const Engine = struct {
             .shader_manager = shader_manager,
             .time = Time.init(),
             .constant_buffer = constant_buffer,
+            .input = Input.init(),
+            .camera_position = .{ 0.0, 0.0, 0.0 },
+            .target_camera_position = .{ 0.0, 0.0, 0.0 },
+            .camera_distance = 3.0,
+            .target_camera_distance = 3.0,
         };
         return engine;
     }
@@ -114,6 +127,11 @@ pub const Engine = struct {
             .shader_manager = shader_manager,
             .time = Time.init(),
             .constant_buffer = constant_buffer,
+            .input = Input.init(),
+            .camera_position = .{ 0.0, 0.0, 0.0 },
+            .target_camera_position = .{ 0.0, 0.0, 0.0 },
+            .camera_distance = 3.0,
+            .target_camera_distance = 3.0,
         };
         return engine;
     }
@@ -252,6 +270,11 @@ pub const Engine = struct {
         }
     }
 
+    // 设置窗口实例
+    pub fn setWindow(self: *Engine, window: *Window) void {
+        self.window = window;
+    }
+
     pub fn run(self: *Engine) !void {
         while (self.update()) {
             self.render();
@@ -271,6 +294,38 @@ pub const Engine = struct {
             }
         }
 
+        // 处理 Win32 窗口的输入
+        if (self.window) |window| {
+            // 处理 Ctrl+鼠标滚轮缩放
+            if (window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.getMouseWheel() != 0) {
+                const wheel_delta = window.getMouseWheel();
+                // 调整目标相机距离
+                self.target_camera_distance -= @as(f32, @floatFromInt(wheel_delta)) * 0.01;
+                // 限制相机距离范围
+                if (self.target_camera_distance < 0.1) self.target_camera_distance = 0.1;
+                if (self.target_camera_distance > 10.0) self.target_camera_distance = 10.0;
+                // 重置鼠标滚轮状态
+                window.resetMouseWheel();
+            }
+
+            // 处理 Ctrl+鼠标中键平移
+            if (window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.isMouseButtonPressed(2)) {
+                const mouse_delta = window.getMouseDelta();
+                // 调整目标相机位置
+                const pan_speed = 0.001 * self.camera_distance;
+                self.target_camera_position[0] -= @as(f32, @floatFromInt(mouse_delta.x)) * pan_speed;
+                self.target_camera_position[1] += @as(f32, @floatFromInt(mouse_delta.y)) * pan_speed;
+                // 重置鼠标 delta 状态
+                window.resetMouseDelta();
+            }
+        }
+
+        // 平滑过渡到目标相机距离和位置
+        const smooth_factor = 0.1;
+        self.camera_distance += (self.target_camera_distance - self.camera_distance) * smooth_factor;
+        self.camera_position[0] += (self.target_camera_position[0] - self.camera_position[0]) * smooth_factor;
+        self.camera_position[1] += (self.target_camera_position[1] - self.camera_position[1]) * smooth_factor;
+
         if (self.size_changed) {
             // 处理窗口大小变化
             self.handleResize() catch |err| {
@@ -289,12 +344,12 @@ pub const Engine = struct {
         if (self.renderer) |*r| {
             r.beginFrame([4]f32{ 0.2, 0.2, 0.3, 1.0 });
 
-            // 创建简单的视图矩阵（相机在(0,0,3)，看向原点）
+            // 创建简单的视图矩阵（相机在(camera_position.x, camera_position.y, camera_distance)，看向原点）
             const view_matrix = [4][4]f32{
                 [4]f32{ 1.0, 0.0, 0.0, 0.0 },
                 [4]f32{ 0.0, 1.0, 0.0, 0.0 },
                 [4]f32{ 0.0, 0.0, 1.0, 0.0 },
-                [4]f32{ 0.0, 0.0, -3.0, 1.0 }, // 相机位置的负值
+                [4]f32{ -self.camera_position[0], -self.camera_position[1], -self.camera_distance, 1.0 }, // 相机位置的负值
             };
 
             // 创建投影矩阵（透视投影）

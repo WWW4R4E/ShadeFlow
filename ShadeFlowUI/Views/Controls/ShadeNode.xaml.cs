@@ -7,7 +7,7 @@ using ShadeFlow.Models;
 using Windows.Foundation;
 using System.Windows.Input;
 
-namespace ShadeFlow.Controls
+namespace ShadeFlow.Views.Controls
 {
     public sealed partial class ShadeNode : UserControl
     {

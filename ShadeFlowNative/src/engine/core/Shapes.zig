@@ -305,7 +305,7 @@ pub const Shapes = struct {
     }
 
     // 添加几何对象（使用默认参数）
-    fn addGeometryObject(engine: *Engine, geometry_type: GeometryType, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
+    pub fn addGeometryObject(engine: *Engine, geometry_type: GeometryType, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
         // 使用默认参数创建几何体
         const params = switch (geometry_type) {
             .Cube => GeometryParams{ .Cube = CubeParams{} },
@@ -320,7 +320,7 @@ pub const Shapes = struct {
     }
 
     // 添加带参数的几何对象
-    fn addGeometryObjectWithParams(engine: *Engine, geometry_type: GeometryType, params: *const GeometryParams, pos_x: f32, pos_y: f32, pos_z: f32, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
+    pub fn addGeometryObjectWithParams(engine: *Engine, geometry_type: GeometryType, params: *const GeometryParams, pos_x: f32, pos_y: f32, pos_z: f32, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
         const allocator = std.heap.page_allocator;
         // 由于export导出给了C ABI，所以这里的路径参数是[*:0]const u8，zig内部又需要转换为[]u8
         const vertex_path = std.mem.sliceTo(vertex_shader_path, 0);
