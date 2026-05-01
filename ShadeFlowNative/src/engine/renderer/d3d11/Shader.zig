@@ -25,27 +25,27 @@ pub const Shader = struct {
         var vertex_shader: ?*win32.ID3D11VertexShader = null;
         const hr_vs = device.d3d_device.CreateVertexShader(shader_data.ptr, shader_data.len, null, @ptrCast(&vertex_shader));
         if (hr_vs != win32.S_OK) {
-            std.debug.print("Failed to create vertex shader, HRESULT: 0x{X}\n", .{hr_vs});
+            std.debug.print("创建顶点着色器失败, HRESULT: 0x{X}\n", .{hr_vs});
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr_vs);
             return error.HResultError;
         }
         if (vertex_shader == null) {
-            std.debug.print("ERROR: vertex_shader is null after creation\n", .{});
+            std.debug.print("错误: vertex_shader 创建后为 null\n", .{});
             return error.VertexShaderCreationFailed;
         }
         // 创建输入布局
         var input_layout: ?*win32.ID3D11InputLayout = null;
         const hr_il = device.d3d_device.CreateInputLayout(input_elements.ptr, @intCast(input_elements.len), shader_data.ptr, shader_data.len, @ptrCast(&input_layout));
         if (hr_il != win32.S_OK) {
-            std.debug.print("Failed to create input layout, HRESULT: 0x{X}\n", .{hr_il});
+            std.debug.print("创建输入布局失败, HRESULT: 0x{X}\n", .{hr_il});
             if (vertex_shader) |vs| _ = vs.IUnknown.Release();
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr_il);
             return error.HResultError;
         }
         if (input_layout == null) {
-            std.debug.print("ERROR: input_layout is null after creation\n", .{});
+            std.debug.print("错误: input_layout 创建后为 null\n", .{});
             if (vertex_shader) |vs| _ = vs.IUnknown.Release();
             return error.InputLayoutCreationFailed;
         }
@@ -62,13 +62,13 @@ pub const Shader = struct {
         var pixel_shader: ?*win32.ID3D11PixelShader = null;
         const hr = device.d3d_device.CreatePixelShader(shader_data.ptr, shader_data.len, null, @ptrCast(&pixel_shader));
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to create pixel shader, HRESULT: 0x{X}\n", .{hr});
+            std.debug.print("创建像素着色器失败, HRESULT: 0x{X}\n", .{hr});
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr);
             return error.HResultError;
         }
         if (pixel_shader == null) {
-            std.debug.print("ERROR: pixel_shader is null after creation\n", .{});
+            std.debug.print("错误: pixel_shader 创建后为 null\n", .{});
             return error.PixelShaderCreationFailed;
         }
 
@@ -109,19 +109,19 @@ pub const Shader = struct {
         if (self.vertex_shader) |vs| {
             device_context.VSSetShader(vs, null, 0);
         } else {
-            std.debug.print("No vertex shader to set\n", .{});
+            std.debug.print("没有顶点着色器可设置\n", .{});
         }
 
         if (self.pixel_shader) |ps| {
             device_context.PSSetShader(ps, null, 0);
         } else {
-            std.debug.print("No pixel shader to set\n", .{});
+            std.debug.print("没有像素着色器可设置\n", .{});
         }
 
         if (self.input_layout) |il| {
             device_context.IASetInputLayout(il);
         } else {
-            std.debug.print("No input layout to set\n", .{});
+            std.debug.print("没有输入布局可设置\n", .{});
         }
 
         device_context.IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

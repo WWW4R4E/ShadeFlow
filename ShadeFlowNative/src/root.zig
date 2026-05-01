@@ -8,10 +8,10 @@ const Shapes = @import("engine/core/Shapes.zig").Shapes;
 const Window = @import("engine/optional/Window.zig").Window;
 const Renderer = @import("engine/renderer/Renderer.zig").Renderer;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa = std.heap.DebugAllocator(.{}){};
 var allocator = gpa.allocator();
 
-// 日志级别枚举(对齐c#)
+/// 日志级别枚举(对齐c#)
 pub const LogLevel = enum(c_int) {
     Debug = 0,
     Info = 1,
@@ -19,17 +19,16 @@ pub const LogLevel = enum(c_int) {
     Error = 3,
 };
 
-// 全局日志回调函数变量
+/// 全局日志回调函数变量
 var log_callback: ?*const anyopaque = null;
 
-// 定义日志回调函数指针类型
-
+/// 定义日志回调函数指针类型
 const LogCallbackPtr = *const fn (level: c_int, message: [*c]const u8) callconv(.c) void;
 
-// 引擎实例的全局存储
+/// 引擎实例的全局存储
 var engine_instance: ?*Engine = null;
 
-// 日志输出
+/// 日志输出
 pub fn log(level_enum: LogLevel, comptime format: []const u8, args: anytype) void {
     var level: c_int = undefined;
     switch (level_enum) {
@@ -44,7 +43,7 @@ pub fn log(level_enum: LogLevel, comptime format: []const u8, args: anytype) voi
     if (log_callback) |callback_ptr| {
         var buffer: [512]u8 = undefined;
         const message = std.fmt.bufPrint(buffer[0..], format, args) catch |err| {
-            std.debug.print("Failed to format log message: {}", .{err});
+            std.debug.print("格式化日志消息失败: {}", .{err});
             return;
         };
 
@@ -55,7 +54,7 @@ pub fn log(level_enum: LogLevel, comptime format: []const u8, args: anytype) voi
     }
 }
 
-// 创建引擎实例(用于WinUI 3 Composition模式)
+/// 创建引擎实例(用于WinUI 3 Composition模式)
 export fn ShadeFlow_CreateEngineForComposition(
     width: u32,
     height: u32,
@@ -79,7 +78,7 @@ export fn ShadeFlow_CreateEngineForComposition(
     return true;
 }
 
-// 获取交换链指针
+/// 获取交换链指针
 export fn ShadeFlow_GetSwapChain() ?*anyopaque {
     if (engine_instance) |engine| {
         if (engine.renderer) |*renderer| {
@@ -92,7 +91,7 @@ export fn ShadeFlow_GetSwapChain() ?*anyopaque {
     return @ptrFromInt(0);
 }
 
-// 调整渲染器大小
+/// 调整渲染器大小
 export fn ShadeFlow_ResizeRenderer(width: u32, height: u32) bool {
     log(LogLevel.Debug, "[ShadeFlow_ResizeRenderer] Resizing renderer to: {}x{}\n", .{ width, height });
 
@@ -109,7 +108,7 @@ export fn ShadeFlow_ResizeRenderer(width: u32, height: u32) bool {
     return false;
 }
 
-// 渲染
+/// 渲染
 export fn ShadeFlow_RenderFrame() bool {
     if (engine_instance) |engine| {
         _ = engine.update();
@@ -119,7 +118,7 @@ export fn ShadeFlow_RenderFrame() bool {
     return false;
 }
 
-// 清理引擎资源
+/// 清理引擎资源
 export fn ShadeFlow_Cleanup() void {
     log(LogLevel.Info, "[ShadeFlow_Cleanup] Starting global resources cleanup\n", .{});
 
@@ -140,14 +139,14 @@ export fn ShadeFlow_Cleanup() void {
     log(LogLevel.Info, "[ShadeFlow_Cleanup] Cleanup completed\n", .{});
 }
 
-// 获取引擎状态
+/// 获取引擎状态
 export fn ShadeFlow_IsEngineInitialized() bool {
     const is_initialized = engine_instance != null;
     log(LogLevel.Debug, "[ShadeFlow_IsEngineInitialized] Engine initialized: {}\n", .{is_initialized});
     return is_initialized;
 }
 
-// 清除所有渲染对象
+/// 清除所有渲染对象
 export fn ShadeFlow_ClearRenderObjects() bool {
     log(LogLevel.Debug, "[ShadeFlow_ClearRenderObjects] Clearing all render objects\n", .{});
 
@@ -165,13 +164,13 @@ export fn ShadeFlow_ClearRenderObjects() bool {
     return false;
 }
 
-// 注册日志回调函数
+/// 注册日志回调函数
 export fn ShadeFlow_RegisterLogCallback(callback: *const anyopaque) void {
     log_callback = callback;
     log(LogLevel.Info, "[ShadeFlow_RegisterLogCallback] Log callback registered successfully\n", .{});
 }
 
-// 添加带参数的立方体
+/// 添加带参数的立方体
 export fn ShadeFlow_AddCubeWithParams(
     size: f32,
     pos_x: f32,
@@ -192,7 +191,7 @@ export fn ShadeFlow_AddCubeWithParams(
     return false;
 }
 
-// 添加带参数的球体
+/// 添加带参数的球体
 export fn ShadeFlow_AddSphereWithParams(
     radius: f32,
     segments: u32,
@@ -214,7 +213,7 @@ export fn ShadeFlow_AddSphereWithParams(
     return false;
 }
 
-// 添加带参数的圆柱体
+/// 添加带参数的圆柱体
 export fn ShadeFlow_AddCylinderWithParams(
     radius: f32,
     height: f32,
@@ -237,7 +236,7 @@ export fn ShadeFlow_AddCylinderWithParams(
     return false;
 }
 
-// 添加带参数的圆锥体
+/// 添加带参数的圆锥体
 export fn ShadeFlow_AddConeWithParams(
     radius: f32,
     height: f32,
@@ -260,7 +259,7 @@ export fn ShadeFlow_AddConeWithParams(
     return false;
 }
 
-// 添加几何对象（使用默认参数）
+/// 添加几何对象（使用默认参数）
 export fn ShadeFlow_AddGeometryObject(
     geometry_type: c_int,
     vertex_shader_path: [*:0]const u8,
@@ -275,7 +274,7 @@ export fn ShadeFlow_AddGeometryObject(
     return false;
 }
 
-// 添加带参数的几何对象
+/// 添加带参数的几何对象
 export fn ShadeFlow_AddGeometryObjectWithParams(
     geometry_type: c_int,
     params: *const Shapes.GeometryParams,
@@ -294,37 +293,35 @@ export fn ShadeFlow_AddGeometryObjectWithParams(
     return false;
 }
 
-// 相机控制相关函数
-
-// 获取相机位置
+/// 相机控制相关函数
+/// 获取相机位置
 export fn ShadeFlow_GetCameraPosition(x: *f32, y: *f32, z: *f32) void {
     if (engine_instance) |engine| {
-        x.* = engine.camera_position[0];
-        y.* = engine.camera_position[1];
-        z.* = engine.camera_position[2];
+        x.* = engine.camera.position[0];
+        y.* = engine.camera.position[1];
+        z.* = engine.camera.position[2];
     }
 }
 
-// 设置相机位置
+/// 设置相机位置
 export fn ShadeFlow_SetCameraPosition(x: f32, y: f32, z: f32) void {
     if (engine_instance) |engine| {
-        engine.camera_position = .{ x, y, z };
-        engine.target_camera_position = .{ x, y, z };
+        engine.camera.position = .{ x, y, z };
     }
 }
 
-// 获取相机距离
+/// 获取相机距离
 export fn ShadeFlow_GetCameraDistance() f32 {
     if (engine_instance) |engine| {
-        return engine.camera_distance;
+        return engine.camera.distance;
     }
     return 3.0;
 }
 
-// 设置相机距离
+/// 设置相机距离
 export fn ShadeFlow_SetCameraDistance(distance: f32) void {
     if (engine_instance) |engine| {
-        engine.camera_distance = distance;
-        engine.target_camera_distance = distance;
+        engine.camera.distance = distance;
+        engine.camera.target_distance = distance;
     }
 }

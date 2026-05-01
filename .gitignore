@@ -1,8 +1,8 @@
 */.zig-cache/*
 */zig-out/*
 desktop.ini
-笔记/*
 */.vs/*
 */bin/*
 */obj/*
 ShadeFlowUI/ShadeFlowNative.dll
+ShadeFlowNative/zig-pkg/*

@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using ShadeFlow.Natives;
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 
 namespace ShadeFlow.ViewModels
@@ -46,7 +47,7 @@ namespace ShadeFlow.ViewModels
 
             try
             {
-                System.Diagnostics.Debug.WriteLine($"Initializing renderer with size: {RenderWidth}x{RenderHeight}");
+                Debug.WriteLine($"正在初始化渲染器，尺寸: {RenderWidth}x{RenderHeight}");
 
                 // 调用Zig库创建引擎
                 if (!ShadeFlowNative.ShadeFlow_CreateEngineForComposition((uint)RenderWidth, (uint)RenderHeight))
@@ -74,21 +75,16 @@ namespace ShadeFlow.ViewModels
                 {
                     projectRoot = AppContext.BaseDirectory;
                 }
-
-
-                //ShadeFlowNative.AddCubeWithParams(1.0f, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
-                //ShadeFlowNative.AddSphereWithParams(1.0f, 32, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
-
                 _isInitialized = true;
                 IsRendering = true;
                 StartRenderLoop();
 
-                System.Diagnostics.Debug.WriteLine("Renderer initialized successfully");
+                Debug.WriteLine("渲染器初始化成功");
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Failed to initialize renderer: {ex.Message}";
-                System.Diagnostics.Debug.WriteLine($"Error initializing renderer: {ex.Message}");
+                Debug.WriteLine($"初始化渲染器错误: {ex.Message}");
                 throw;
             }
         }
@@ -102,11 +98,11 @@ namespace ShadeFlow.ViewModels
             try
             {
                 ShadeFlowNative.ShadeFlow_ResizeRenderer((uint)RenderWidth, (uint)RenderHeight);
-                System.Diagnostics.Debug.WriteLine($"Renderer resized to {RenderWidth}x{RenderHeight}");
+                Debug.WriteLine($"渲染器已调整大小为 {RenderWidth}x{RenderHeight}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error resizing renderer: {ex.Message}");
+                Debug.WriteLine($"调整渲染器大小错误: {ex.Message}");
             }
         }
 
@@ -122,11 +118,11 @@ namespace ShadeFlow.ViewModels
                 StopRenderLoop();
                 ShadeFlowNative.ShadeFlow_Cleanup();
                 _isInitialized = false;
-                System.Diagnostics.Debug.WriteLine("Renderer cleaned up");
+                Debug.WriteLine("渲染器已清理");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during cleanup: {ex.Message}");
+                Debug.WriteLine($"清理过程错误: {ex.Message}");
             }
         }
 
@@ -139,7 +135,7 @@ namespace ShadeFlow.ViewModels
             var dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             if (dispatcherQueue == null)
             {
-                System.Diagnostics.Debug.WriteLine("Failed to get DispatcherQueue for render loop");
+                Debug.WriteLine("获取渲染循环的 DispatcherQueue 失败");
                 return;
             }
 
@@ -149,7 +145,7 @@ namespace ShadeFlow.ViewModels
             _renderTimer.Tick += (s, e) => RenderFrame();
             _renderTimer.Start();
 
-            System.Diagnostics.Debug.WriteLine("Render loop started");
+            Debug.WriteLine("渲染循环已启动");
         }
 
         private void StopRenderLoop()
@@ -165,7 +161,7 @@ namespace ShadeFlow.ViewModels
                 _renderTimer = null;
             }
 
-            System.Diagnostics.Debug.WriteLine("Render loop stopped");
+            Debug.WriteLine("渲染循环已停止");
         }
 
         private void RenderFrame()
@@ -178,7 +174,7 @@ namespace ShadeFlow.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error rendering frame: {ex.Message}");
+                Debug.WriteLine($"渲染帧错误: {ex.Message}");
             }
         }
 
@@ -186,7 +182,7 @@ namespace ShadeFlow.ViewModels
         {
             _logCallbackRef = OnNativeLogReceived;
             ShadeFlowNative.RegisterLogCallback(_logCallbackRef);
-            System.Diagnostics.Debug.WriteLine("Native log callback registered");
+            Debug.WriteLine("原生日志回调已注册");
         }
 
         // 日志回调
@@ -202,7 +198,7 @@ namespace ShadeFlow.ViewModels
                 _ => "[UNKNOWN]"
             };
 
-            System.Diagnostics.Debug.WriteLine($"{levelPrefix} {message}");
+            Debug.WriteLine($"{levelPrefix} {message}");
         }
     }
 }

@@ -24,7 +24,7 @@ pub const Buffer = struct {
             .buffer_type = buffer_type,
             .stride = 0,
             .count = 0,
-        };           
+        };
     }
 
     pub fn createVertexBuffer(self: *Buffer, device: *Device, data: []const u8, stride: u32, usage: enum { default, dynamic, immutable }) !void {
@@ -92,7 +92,7 @@ pub const Buffer = struct {
     pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) !void {
         // 确保是索引缓冲区类型
         if (self.buffer_type != .index) {
-            std.debug.print("Invalid buffer type\n", .{});
+            std.debug.print("无效的缓冲区类型\n", .{});
             return error.InvalidBufferType;
         }
 
@@ -117,7 +117,7 @@ pub const Buffer = struct {
         var buffer: ?*win32.ID3D11Buffer = null;
         const hr = device.d3d_device.CreateBuffer(&buffer_desc, &initial_data, @ptrCast(&buffer));
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to create index buffer: 0x{X}\n", .{hr});
+            std.debug.print("创建索引缓冲区失败: 0x{X}\n", .{hr});
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr);
             return error.HResultError;
@@ -152,7 +152,7 @@ pub const Buffer = struct {
         var buffer: ?*win32.ID3D11Buffer = null;
         const hr = device.d3d_device.CreateBuffer(&buffer_desc, null, @ptrCast(&buffer));
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to create constant buffer: 0x{X}\n", .{hr});
+            std.debug.print("创建常量缓冲区失败: 0x{X}\n", .{hr});
             var hresult_error: HResultError = undefined;
             hresult_error.init(hr);
             return error.HResultError;

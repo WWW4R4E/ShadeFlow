@@ -196,11 +196,11 @@ namespace ShadeFlow.Natives
                 IntPtr callbackPtr = Marshal.GetFunctionPointerForDelegate(_nativeLogCallback);
                 ShadeFlow_RegisterLogCallback(callbackPtr);
                 
-                Debug.WriteLine("Log callback registered successfully");
+                Debug.WriteLine("日志回调注册成功");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Failed to register log callback: {ex.Message}");
+                Debug.WriteLine($"注册日志回调失败: {ex.Message}");
                 throw;
             }
         }
@@ -224,19 +224,19 @@ namespace ShadeFlow.Natives
         {
             try
             {
-                Debug.WriteLine($"Creating ShadeFlow engine with size {width}x{height}");
-                Debug.WriteLine($"Looking for library at: {Path.GetFullPath(DllName)}");
+                Debug.WriteLine($"正在创建 ShadeFlow 引擎，尺寸 {width}x{height}");
+                Debug.WriteLine($"正在查找库文件: {Path.GetFullPath(DllName)}");
                 
                 bool result = ShadeFlow_CreateEngineForComposition(width, height);
                 
                 if (result)
                 {
-                    Debug.WriteLine("Engine created successfully");
+                    Debug.WriteLine("引擎创建成功");
                     return true;
                 }
                 else
                 {
-                    Debug.WriteLine("Failed to create engine");
+                    Debug.WriteLine("创建引擎失败");
                     // 检查是否为DLL加载问题
                     if (!File.Exists(DllName))
                     {
@@ -247,12 +247,12 @@ namespace ShadeFlow.Natives
             }
             catch (DllNotFoundException dllEx)
             {
-                Debug.WriteLine($"DLL not found: {DllName}. Error: {dllEx.Message}");
+                Debug.WriteLine($"DLL 未找到: {DllName}。错误: {dllEx.Message}");
                 throw new Exception($"Failed to load ShadeFlow library: {dllEx.Message}", dllEx);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error creating engine: {ex.Message}");
+                Debug.WriteLine($"创建引擎错误: {ex.Message}");
                 throw;
             }
         }
@@ -269,18 +269,18 @@ namespace ShadeFlow.Natives
                 
                 if (result != IntPtr.Zero)
                 {
-                    Debug.WriteLine("Successfully obtained swap chain pointer");
+                    Debug.WriteLine("成功获取交换链指针");
                     return result;
                 }
                 else
                 {
-                    Debug.WriteLine("Failed to obtain swap chain pointer");
+                    Debug.WriteLine("获取交换链指针失败");
                     return IntPtr.Zero;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error getting swap chain: {ex.Message}");
+                Debug.WriteLine($"获取交换链错误: {ex.Message}");
                 throw;
             }
         }
@@ -299,18 +299,18 @@ namespace ShadeFlow.Natives
                 
                 if (result)
                 {
-                    Debug.WriteLine($"Renderer resized to {width}x{height}");
+                    Debug.WriteLine($"渲染器已调整大小为 {width}x{height}");
                     return true;
                 }
                 else
                 {
-                    Debug.WriteLine($"Failed to resize renderer to {width}x{height}");
+                    Debug.WriteLine($"调整渲染器大小失败: {width}x{height}");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error resizing renderer: {ex.Message}");
+                Debug.WriteLine($"调整渲染器大小错误: {ex.Message}");
                 throw;
             }
         }
@@ -327,14 +327,14 @@ namespace ShadeFlow.Natives
                 
                 if (!result)
                 {
-                    Debug.WriteLine("Failed to render frame");
+                    Debug.WriteLine("渲染帧失败");
                 }
                 
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error rendering frame: {ex.Message}");
+                Debug.WriteLine($"渲染帧错误: {ex.Message}");
                 throw;
             }
         }
@@ -415,11 +415,11 @@ namespace ShadeFlow.Natives
                 {
                     throw new Exception("Failed to add cube with params to renderer");
                 }
-                Debug.WriteLine($"Cube with size {size} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"立方体已成功添加，大小 {size}，位置 ({pos_x}, {pos_y}, {pos_z})，着色器: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error adding cube with params: {ex.Message}");
+                Debug.WriteLine($"添加立方体参数错误: {ex.Message}");
                 throw;
             }
         }
@@ -453,11 +453,11 @@ namespace ShadeFlow.Natives
                 {
                     throw new Exception("Failed to add sphere with params to renderer");
                 }
-                Debug.WriteLine($"Sphere with radius {radius}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"球体已成功添加，半径 {radius}，分段 {segments}，位置 ({pos_x}, {pos_y}, {pos_z})，着色器: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error adding sphere with params: {ex.Message}");
+                Debug.WriteLine($"添加球体参数错误: {ex.Message}");
                 throw;
             }
         }
@@ -493,11 +493,11 @@ namespace ShadeFlow.Natives
                 {
                     throw new Exception("Failed to add cylinder with params to renderer");
                 }
-                Debug.WriteLine($"Cylinder with radius {radius}, height {height}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"圆柱体已成功添加，半径 {radius}，高度 {height}，分段 {segments}，位置 ({pos_x}, {pos_y}, {pos_z})，着色器: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error adding cylinder with params: {ex.Message}");
+                Debug.WriteLine($"添加圆柱体参数错误: {ex.Message}");
                 throw;
             }
         }
@@ -534,11 +534,11 @@ namespace ShadeFlow.Natives
                 {
                     throw new Exception("Failed to add cone with params to renderer");
                 }
-                Debug.WriteLine($"Cone with radius {radius}, height {height}, segments {segments} at position ({pos_x}, {pos_y}, {pos_z}) added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"圆锥体已成功添加，半径 {radius}，高度 {height}，分段 {segments}，位置 ({pos_x}, {pos_y}, {pos_z})，着色器: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error adding cone with params: {ex.Message}");
+                Debug.WriteLine($"添加圆锥体参数错误: {ex.Message}");
                 throw;
             }
         }
@@ -607,12 +607,12 @@ namespace ShadeFlow.Natives
             try
             {
                 bool result = ShadeFlow_IsEngineInitialized();
-                Debug.WriteLine($"Engine initialization status: {result}");
+                Debug.WriteLine($"引擎初始化状态: {result}");
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error checking engine initialization: {ex.Message}");
+                Debug.WriteLine($"检查引擎初始化错误: {ex.Message}");
                 throw;
             }
         }
@@ -627,17 +627,17 @@ namespace ShadeFlow.Natives
                 bool result = ShadeFlow_ClearRenderObjects();
                 if (result)
                 {
-                    Debug.WriteLine("All render objects cleared successfully");
+                    Debug.WriteLine("所有渲染对象已成功清除");
                 }
                 else
                 {
-                    Debug.WriteLine("Failed to clear render objects");
+                    Debug.WriteLine("清除渲染对象失败");
                 }
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error clearing render objects: {ex.Message}");
+                Debug.WriteLine($"清除渲染对象错误: {ex.Message}");
                 throw;
             }
         }
@@ -650,11 +650,11 @@ namespace ShadeFlow.Natives
             try
             {
                 ShadeFlow_Cleanup();
-                Debug.WriteLine("Resources cleaned up successfully");
+                Debug.WriteLine("资源清理成功");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error during cleanup: {ex.Message}");
+                Debug.WriteLine($"清理过程错误: {ex.Message}");
                 throw;
             }
         }
@@ -673,11 +673,11 @@ namespace ShadeFlow.Natives
                 {
                     throw new Exception("Failed to add geometry object");
                 }
-                Debug.WriteLine($"Geometry object of type {geometry_type} added successfully with shaders: {vertex_shader_path}, {pixel_shader_path}");
+                Debug.WriteLine($"几何对象已成功添加，类型 {geometry_type}，着色器: {vertex_shader_path}, {pixel_shader_path}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error adding geometry object: {ex.Message}");
+                Debug.WriteLine($"添加几何对象错误: {ex.Message}");
                 throw;
             }
         }
@@ -732,7 +732,7 @@ namespace ShadeFlow.Natives
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error getting camera position: {ex.Message}");
+                Debug.WriteLine($"获取相机位置错误: {ex.Message}");
                 throw;
             }
         }
@@ -751,7 +751,7 @@ namespace ShadeFlow.Natives
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error setting camera position: {ex.Message}");
+                Debug.WriteLine($"设置相机位置错误: {ex.Message}");
                 throw;
             }
         }
@@ -768,7 +768,7 @@ namespace ShadeFlow.Natives
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error getting camera distance: {ex.Message}");
+                Debug.WriteLine($"获取相机距离错误: {ex.Message}");
                 throw;
             }
         }
@@ -785,7 +785,7 @@ namespace ShadeFlow.Natives
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error setting camera distance: {ex.Message}");
+                Debug.WriteLine($"设置相机距离错误: {ex.Message}");
                 throw;
             }
         }

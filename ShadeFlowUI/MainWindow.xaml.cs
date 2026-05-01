@@ -1,8 +1,10 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.System;
-using Windows.Storage.Pickers;
 using System;
+using System.Diagnostics;
+using Windows.Storage.Pickers;
+using Windows.System;
 
 namespace ShadeFlow
 {
@@ -11,10 +13,9 @@ namespace ShadeFlow
 
     public MainWindow()
     {
-      this.ExtendsContentIntoTitleBar = true;
-      AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
-      //SetTitleBar(AppTitleBar);
-      InitializeComponent();
+            ExtendsContentIntoTitleBar = true;
+            AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+            InitializeComponent();
     }
 
     private async void Open_Click(object sender, RoutedEventArgs e)
@@ -30,7 +31,7 @@ namespace ShadeFlow
       var folder = await picker.PickSingleFolderAsync();
       if (folder != null)
       {
-          System.Diagnostics.Debug.WriteLine("Picked: " + folder.Path);
+          Debug.WriteLine("已选择: " + folder.Path);
           
           if (Content is Grid rootGrid && rootGrid.Children.Count > 1)
           {

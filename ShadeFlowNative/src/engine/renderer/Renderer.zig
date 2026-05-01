@@ -15,7 +15,6 @@ pub const Renderer = struct {
     // 渲染管线核心资源
     render_target_view: *win32.ID3D11RenderTargetView,
     depth_texture: Texture,
-    // 保存 back_buffer 指针通常是个好习惯，虽然 RTV 也持有引用
     back_buffer: *win32.ID3D11Texture2D,
 
     width: u32,
@@ -32,12 +31,10 @@ pub const Renderer = struct {
         errdefer device.deinit();
 
         // 2. 创建 SwapChain (Composition 模式)
-        // 注意：这里调用的是我们上一轮修改过的 SwapChain.zig
         var swap_chain = try SwapChain.initForComposition(&device, width, height);
         errdefer swap_chain.deinit();
 
         // 3. 创建其余管线资源 (RTV, Depth, Viewport)
-        // 我们先创建一个空的结构体架子，然后调用辅助函数填充资源
         var renderer = Renderer{
             .device = device,
             .swap_chain = swap_chain,
@@ -47,8 +44,6 @@ pub const Renderer = struct {
             .width = width,
             .height = height,
         };
-
-        // 这一步会填充 render_target_view, depth_texture 等
         try renderer.createPipelineResources(width, height);
 
         return renderer;
@@ -93,7 +88,6 @@ pub const Renderer = struct {
     // ============================================================
 
     /// 核心辅助函数：创建 RTV, Depth Buffer 和 Viewport
-    /// 无论是 Init 还是 Resize，本质上都是在做这件事
     fn createPipelineResources(self: *@This(), width: u32, height: u32) !void {
         // 1. 从 SwapChain 获取 BackBuffer
         // 注意：IDXGISwapChain1 也是用 GetBuffer，接口是一样的

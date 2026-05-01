@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 
 const win32 = @import("win32").everything;
 
@@ -8,7 +9,7 @@ const Shapes = @import("engine/core/Shapes.zig").Shapes;
 const Window = @import("engine/optional/Window.zig").Window;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
     var Mainwindow = try Window.init(allocator);
@@ -25,7 +26,12 @@ pub fn main() !void {
     }
 
     const cylinder_params = Shapes.GeometryParams{ .Cylinder = Shapes.CylinderParams{ .radius = 0.5, .height = 1.0 } };
-    const exe_path = try std.fs.selfExePathAlloc(allocator);
+
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const io = threaded.io();
+    const exe_path = try std.process.executablePathAlloc(io, allocator);
     defer allocator.free(exe_path);
     const app_dir = std.fs.path.dirname(exe_path).?;
 

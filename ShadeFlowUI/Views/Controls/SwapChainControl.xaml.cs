@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ShadeFlow.Natives;
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Windows.System;
@@ -115,7 +116,7 @@ namespace ShadeFlow.Views.Controls
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error initializing swap chain: {ex.Message}");
+                Debug.WriteLine($"初始化交换链错误: {ex.Message}");
                 Cleanup();
             }
         }
@@ -142,7 +143,7 @@ namespace ShadeFlow.Views.Controls
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error updating swap chain size: {ex.Message}");
+                Debug.WriteLine($"更新交换链大小错误: {ex.Message}");
             }
         }
 
@@ -237,7 +238,7 @@ namespace ShadeFlow.Views.Controls
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during cleanup: {ex.Message}");
+                Debug.WriteLine($"清理过程错误: {ex.Message}");
             }
         }
     }

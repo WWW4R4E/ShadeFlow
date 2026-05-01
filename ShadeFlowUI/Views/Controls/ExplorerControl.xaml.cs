@@ -5,6 +5,7 @@ using ShadeFlow.Models;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -174,12 +175,12 @@ namespace ShadeFlow.Views.Controls
             {
                 foreach (var filePath in files)
                 {
-                    System.Diagnostics.Debug.WriteLine($"找到文件: {filePath}");
+                    Debug.WriteLine($"文件已找到: {filePath}");
                 }
                 return files[0];
             }
 
-            System.Diagnostics.Debug.WriteLine($"未找到文件: {item.Name}");
+            Debug.WriteLine($"文件未找到: {item.Name}");
             return string.Empty;
         }
 
@@ -194,12 +195,12 @@ namespace ShadeFlow.Views.Controls
                 // 返回找到的第一个匹配项
                 foreach (var folderPath in folders)
                 {
-                    System.Diagnostics.Debug.WriteLine($"找到文件夹: {folderPath}");
+                    Debug.WriteLine($"文件夹已找到: {folderPath}");
                 }
                 return folders[0]; 
             }
 
-            System.Diagnostics.Debug.WriteLine($"未找到文件夹: {item.Name}");
+            Debug.WriteLine($"文件夹未找到: {item.Name}");
             return string.Empty;
         }
 

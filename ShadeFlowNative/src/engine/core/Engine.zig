@@ -2,9 +2,12 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
+const Matrix = @import("../../utils/math/Matrix.zig").Matrix;
+const Quaternion = @import("../../utils/math/Quaternion.zig").Quaternion;
 const Time = @import("../../utils/Time.zig").Time;
 const Input = @import("../optional/Input.zig").Input;
 const Window = @import("../optional/Window.zig").Window;
+const Camera = @import("../renderer/3d/Camera.zig").Camera;
 const Buffer = @import("../renderer/d3d11/Buffer.zig").Buffer;
 const Device = @import("../renderer/d3d11/Device.zig").Device;
 const Shader = @import("../renderer/d3d11/Shader.zig").Shader;
@@ -28,13 +31,41 @@ pub const Constants = struct {
     padding: [3]f32,
 };
 
+// 变换结构体
+const Transform = struct {
+    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    rotation: Quaternion = Quaternion{},
+    scale: [3]f32 = .{ 1.0, 1.0, 1.0 },
+
+    // 计算世界矩阵
+    pub fn getWorldMatrix(self: *const Transform) [4][4]f32 {
+        const translate_matrix = Matrix.createTranslationMatrix(self.position[0], self.position[1], self.position[2]);
+        const rot_matrix = self.rotation.toMatrix();
+        const scale_matrix = Matrix.createScaleMatrix(self.scale[0], self.scale[1], self.scale[2]);
+
+        // 组合变换矩阵：缩放 -> 旋转 -> 平移
+        var world_matrix = Matrix.matrixMultiply(scale_matrix, rot_matrix);
+        world_matrix = Matrix.matrixMultiply(world_matrix, translate_matrix);
+
+        return world_matrix;
+    }
+
+    // 更新（用于动画）
+    pub fn update(self: *Transform, delta_time: f64) void {
+        // self.rotation = Quaternion.multiply(
+        //     Quaternion.fromAxisAngle(.{ 0.0, 1.0, 0.0 }, @floatCast(0.5 * delta_time)),
+        //     self.rotation,
+        // );
+        _ = delta_time;
+        _ = self.rotation;
+    }
+};
+
 // 渲染对象结构
 const RenderObject = struct {
     vertex_buffer: Buffer,
     shader: Shader,
-    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    rotation: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    scale: [3]f32 = .{ 1.0, 1.0, 1.0 },
+    transform: Transform = Transform{},
 };
 
 // 索引渲染对象结构
@@ -43,9 +74,7 @@ const IndexedRenderObject = struct {
     index_buffer: Buffer,
     shader: Shader,
     index_count: u32,
-    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    rotation: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    scale: [3]f32 = .{ 1.0, 1.0, 1.0 },
+    transform: Transform = Transform{},
 };
 
 pub const Engine = struct {
@@ -60,10 +89,7 @@ pub const Engine = struct {
     time: Time,
     constant_buffer: Buffer,
     input: Input,
-    camera_position: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    target_camera_position: [3]f32 = .{ 0.0, 0.0, 0.0 },
-    camera_distance: f32 = 3.0,
-    target_camera_distance: f32 = 3.0,
+    camera: Camera = Camera{},
 
     // 为 Composition 初始化引擎
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
@@ -72,8 +98,7 @@ pub const Engine = struct {
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
-            std.debug.print("Failed to allocate engine: {}", .{err});
-            std.debug.print("Failed to allocate engine: {}", .{err});
+            std.debug.print("分配引擎失败: {}", .{err});
             renderer.deinit();
             return err;
         };
@@ -92,11 +117,9 @@ pub const Engine = struct {
             .time = Time.init(),
             .constant_buffer = constant_buffer,
             .input = Input.init(),
-            .camera_position = .{ 0.0, 0.0, 0.0 },
-            .target_camera_position = .{ 0.0, 0.0, 0.0 },
-            .camera_distance = 3.0,
-            .target_camera_distance = 3.0,
+            .camera = Camera{},
         };
+        engine.camera.setAspectRatio(width, height);
         return engine;
     }
     // 为 HWND 初始化引擎
@@ -107,9 +130,8 @@ pub const Engine = struct {
         const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
         const engine = allocator.create(Engine) catch |err| {
-            std.debug.print("Failed to allocate engine: {}", .{err});
             renderer.deinit();
-            std.debug.print("Failed to allocate engine: {}", .{err});
+            std.debug.print("分配引擎失败: {}", .{err});
             renderer.deinit();
             return err;
         };
@@ -128,11 +150,9 @@ pub const Engine = struct {
             .time = Time.init(),
             .constant_buffer = constant_buffer,
             .input = Input.init(),
-            .camera_position = .{ 0.0, 0.0, 0.0 },
-            .target_camera_position = .{ 0.0, 0.0, 0.0 },
-            .camera_distance = 3.0,
-            .target_camera_distance = 3.0,
+            .camera = Camera{},
         };
+        engine.camera.setAspectRatio(width, height);
         return engine;
     }
 
@@ -150,7 +170,7 @@ pub const Engine = struct {
         var vs_blob: ?*win32.ID3DBlob = null;
         var hr = win32.D3DReadFileToBlob(@ptrCast(vertex_shader_wide.ptr), &vs_blob);
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to load vertex shader blob: 0x{X}\n", .{hr});
+            std.debug.print("加载顶点着色器 blob 失败: 0x{X}\n", .{hr});
             vertex_buffer.deinit();
             return error.FailedToLoadVertexShader;
         }
@@ -167,7 +187,7 @@ pub const Engine = struct {
         var ps_blob: ?*win32.ID3DBlob = null;
         hr = win32.D3DReadFileToBlob(@ptrCast(pixel_shader_wide.ptr), &ps_blob);
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to load pixel shader blob: 0x{X}\n", .{hr});
+            std.debug.print("加载像素着色器 blob 失败: 0x{X}\n", .{hr});
             vertex_buffer.deinit();
             shader.deinit();
             return error.FailedToLoadPixelShader;
@@ -180,7 +200,7 @@ pub const Engine = struct {
         try self.render_objects.append(self.allocator, RenderObject{
             .vertex_buffer = vertex_buffer,
             .shader = shader,
-            .position = position,
+            .transform = Transform{ .position = position },
         });
     }
 
@@ -201,7 +221,7 @@ pub const Engine = struct {
         var vs_blob: ?*win32.ID3DBlob = null;
         var hr = win32.D3DReadFileToBlob(@ptrCast(vertex_shader_wide.ptr), &vs_blob);
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to load vertex shader blob: 0x{X}\n", .{hr});
+            std.debug.print("加载顶点着色器 blob 失败: 0x{X}\n", .{hr});
             vertex_buffer.deinit();
             index_buffer.deinit();
             return error.FailedToLoadVertexShader;
@@ -219,7 +239,7 @@ pub const Engine = struct {
         var ps_blob: ?*win32.ID3DBlob = null;
         hr = win32.D3DReadFileToBlob(@ptrCast(pixel_shader_wide.ptr), &ps_blob);
         if (hr != win32.S_OK) {
-            std.debug.print("Failed to load pixel shader blob: 0x{X}\n", .{hr});
+            std.debug.print("加载像素着色器 blob 失败: 0x{X}\n", .{hr});
             vertex_buffer.deinit();
             index_buffer.deinit();
             shader.deinit();
@@ -236,7 +256,7 @@ pub const Engine = struct {
             .shader = shader,
             //  .index_count = @intCast(indices.len),
             .index_count = @as(u32, @intCast(indices.len)),
-            .position = position,
+            .transform = Transform{ .position = position },
         });
     }
 
@@ -299,11 +319,8 @@ pub const Engine = struct {
             // 处理 Ctrl+鼠标滚轮缩放
             if (window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.getMouseWheel() != 0) {
                 const wheel_delta = window.getMouseWheel();
-                // 调整目标相机距离
-                self.target_camera_distance -= @as(f32, @floatFromInt(wheel_delta)) * 0.01;
-                // 限制相机距离范围
-                if (self.target_camera_distance < 0.1) self.target_camera_distance = 0.1;
-                if (self.target_camera_distance > 10.0) self.target_camera_distance = 10.0;
+                // 调整相机距离
+                self.camera.zoom(@as(f32, @floatFromInt(wheel_delta)));
                 // 重置鼠标滚轮状态
                 window.resetMouseWheel();
             }
@@ -311,77 +328,70 @@ pub const Engine = struct {
             // 处理 Ctrl+鼠标中键平移
             if (window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.isMouseButtonPressed(2)) {
                 const mouse_delta = window.getMouseDelta();
-                // 调整目标相机位置
-                const pan_speed = 0.001 * self.camera_distance;
-                self.target_camera_position[0] -= @as(f32, @floatFromInt(mouse_delta.x)) * pan_speed;
-                self.target_camera_position[1] += @as(f32, @floatFromInt(mouse_delta.y)) * pan_speed;
+                // 平移相机
+                self.camera.pan(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
+                // 重置鼠标 delta 状态
+                window.resetMouseDelta();
+            }
+
+            // 处理鼠标中键绕中心旋转（不按alt键且不按ctrl键）
+            if (!window.isKeyPressedFromEnum(win32.VK_MENU) and !window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.isMouseButtonPressed(2)) {
+                const mouse_delta = window.getMouseDelta();
+                // 绕中心旋转相机（公转）
+                self.camera.rotateAroundCenter(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
+                // 重置鼠标 delta 状态
+                window.resetMouseDelta();
+            }
+
+            // 处理Alt+鼠标中键相机自转
+            if (window.isKeyPressedFromEnum(win32.VK_MENU) and !window.isKeyPressedFromEnum(win32.VK_CONTROL) and window.isMouseButtonPressed(2)) {
+                const mouse_delta = window.getMouseDelta();
+                // 相机自转
+                self.camera.rotateSelf(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
                 // 重置鼠标 delta 状态
                 window.resetMouseDelta();
             }
         }
 
-        // 平滑过渡到目标相机距离和位置
-        const smooth_factor = 0.1;
-        self.camera_distance += (self.target_camera_distance - self.camera_distance) * smooth_factor;
-        self.camera_position[0] += (self.target_camera_position[0] - self.camera_position[0]) * smooth_factor;
-        self.camera_position[1] += (self.target_camera_position[1] - self.camera_position[1]) * smooth_factor;
+        // 更新相机位置
+        self.camera.update();
 
         if (self.size_changed) {
             // 处理窗口大小变化
             self.handleResize() catch |err| {
-                std.debug.print("Failed to handle resize: {}\n", .{err});
+                std.debug.print("处理窗口大小变化失败: {}\n", .{err});
             };
             self.size_changed = false;
         }
 
         // 更新时间
         self.time.update();
+        const delta_time = self.time.getDeltaTime();
+
+        // 更新所有渲染对象的变换状态
+        for (self.render_objects.items) |*render_object| {
+            render_object.transform.update(delta_time);
+        }
+
+        for (self.indexed_render_objects.items) |*indexed_render_object| {
+            indexed_render_object.transform.update(delta_time);
+        }
 
         return true;
     }
 
     pub fn render(self: *Engine) void {
         if (self.renderer) |*r| {
-            r.beginFrame([4]f32{ 0.2, 0.2, 0.3, 1.0 });
+            r.beginFrame([4]f32{ 0.0, 0.0, 0.0, 0.0 });
 
-            // 创建简单的视图矩阵（相机在(camera_position.x, camera_position.y, camera_distance)，看向原点）
-            const view_matrix = [4][4]f32{
-                [4]f32{ 1.0, 0.0, 0.0, 0.0 },
-                [4]f32{ 0.0, 1.0, 0.0, 0.0 },
-                [4]f32{ 0.0, 0.0, 1.0, 0.0 },
-                [4]f32{ -self.camera_position[0], -self.camera_position[1], -self.camera_distance, 1.0 }, // 相机位置的负值
-            };
-
-            // 创建投影矩阵（透视投影）
-            const aspect_ratio = @as(f32, @floatFromInt(r.width)) / @as(f32, @floatFromInt(r.height));
-            const fov = 1.0; // 45度视角
-            const near = 0.1;
-            const far = 100.0;
-
-            const y_scale = 1.0 / @tan(fov / 2.0);
-            const x_scale = y_scale / aspect_ratio;
-            const z_scale = -(far + near) / (far - near);
-            const z_offset = (-2.0 * far * near) / (far - near);
-
-            const proj_matrix = [4][4]f32{
-                [4]f32{ x_scale, 0.0, 0.0, 0.0 },
-                [4]f32{ 0.0, y_scale, 0.0, 0.0 },
-                [4]f32{ 0.0, 0.0, z_scale, -1.0 },
-                [4]f32{ 0.0, 0.0, z_offset, 0.0 },
-            };
+            // 获取相机的视图矩阵和投影矩阵
+            const view_matrix = self.camera.getViewMatrix();
+            const proj_matrix = self.camera.getProjectionMatrix();
 
             // 渲染普通对象
             for (self.render_objects.items) |render_object| {
-                // 为每个对象计算世界矩阵
-                const translate_matrix = self.createTranslationMatrix(render_object.position[0], render_object.position[1], render_object.position[2]);
-
-                // 组合旋转矩阵
-                const rot_x_matrix = self.createRotationXMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.5)));
-                const rot_y_matrix = self.createRotationYMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.3)));
-                const rotate_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
-
-                // 组合世界矩阵
-                const world_matrix = self.matrixMultiply(translate_matrix, rotate_matrix);
+                // 从物体的 transform 获取世界矩阵
+                const world_matrix = render_object.transform.getWorldMatrix();
 
                 // 更新常量缓冲区
                 const constants = Constants{
@@ -389,11 +399,11 @@ pub const Engine = struct {
                     .mProj = proj_matrix,
                     .mWorld = world_matrix,
                     .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
-                    .time = @floatCast(self.time.getTotalTime()),
+                    .time = @as(f32, @floatCast(self.time.getTotalTime())),
                     .padding = [3]f32{ 0.0, 0.0, 0.0 },
                 };
                 self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
-                    std.debug.print("Failed to update constant buffer: {}\n", .{err});
+                    std.debug.print("更新常量缓冲区失败: {}\n", .{err});
                 };
 
                 // 绑定常量缓冲区到顶点着色器的 b0 槽位
@@ -412,16 +422,8 @@ pub const Engine = struct {
 
             // 渲染索引对象
             for (self.indexed_render_objects.items) |indexed_render_object| {
-                // 为每个对象计算世界矩阵
-                const translate_matrix = self.createTranslationMatrix(indexed_render_object.position[0], indexed_render_object.position[1], indexed_render_object.position[2]);
-
-                // 组合旋转矩阵
-                const rot_x_matrix = self.createRotationXMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.5)));
-                const rot_y_matrix = self.createRotationYMatrix(@as(f32, @floatCast(self.time.getTotalTime() * 0.3)));
-                const rotate_matrix = self.matrixMultiply(rot_x_matrix, rot_y_matrix);
-
-                // 组合世界矩阵
-                const world_matrix = self.matrixMultiply(translate_matrix, rotate_matrix);
+                // 从物体的 transform 获取世界矩阵
+                const world_matrix = indexed_render_object.transform.getWorldMatrix();
 
                 // 更新常量缓冲区
                 const constants = Constants{
@@ -429,11 +431,11 @@ pub const Engine = struct {
                     .mProj = proj_matrix,
                     .mWorld = world_matrix,
                     .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
-                    .time = @floatCast(self.time.getTotalTime()),
+                    .time = @as(f32, @floatCast(self.time.getTotalTime())),
                     .padding = [3]f32{ 0.0, 0.0, 0.0 },
                 };
                 self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
-                    std.debug.print("Failed to update constant buffer: {}\n", .{err});
+                    std.debug.print("更新常量缓冲区失败: {}\n", .{err});
                 };
 
                 // 绑定常量缓冲区到顶点着色器的 b0 槽位
@@ -457,83 +459,6 @@ pub const Engine = struct {
         }
     }
 
-    // 矩阵乘法辅助函数
-    fn matrixMultiply(self: *const Engine, a: [4][4]f32, b: [4][4]f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-
-        var result: [4][4]f32 = undefined;
-        for (0..4) |i| {
-            for (0..4) |j| {
-                result[i][j] = 0.0;
-                for (0..4) |k| {
-                    result[i][j] += a[i][k] * b[k][j];
-                }
-            }
-        }
-        return result;
-    }
-
-    // 创建平移矩阵
-    fn createTranslationMatrix(self: *const Engine, x: f32, y: f32, z: f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-        return [4][4]f32{
-            [4]f32{ 1.0, 0.0, 0.0, 0.0 },
-            [4]f32{ 0.0, 1.0, 0.0, 0.0 },
-            [4]f32{ 0.0, 0.0, 1.0, 0.0 },
-            [4]f32{ x, y, z, 1.0 },
-        };
-    }
-
-    // 创建X轴旋转矩阵
-    fn createRotationXMatrix(self: *const Engine, angle: f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-        const c = @cos(angle);
-        const s = @sin(angle);
-        return [4][4]f32{
-            [4]f32{ 1.0, 0.0, 0.0, 0.0 },
-            [4]f32{ 0.0, c, -s, 0.0 },
-            [4]f32{ 0.0, s, c, 0.0 },
-            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-        };
-    }
-
-    // 创建Y轴旋转矩阵
-    fn createRotationYMatrix(self: *const Engine, angle: f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-        const c = @cos(angle);
-        const s = @sin(angle);
-        return [4][4]f32{
-            [4]f32{ c, 0.0, s, 0.0 },
-            [4]f32{ 0.0, 1.0, 0.0, 0.0 },
-            [4]f32{ -s, 0.0, c, 0.0 },
-            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-        };
-    }
-
-    // 创建Z轴旋转矩阵
-    fn createRotationZMatrix(self: *const Engine, angle: f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-        const c = @cos(angle);
-        const s = @sin(angle);
-        return [4][4]f32{
-            [4]f32{ c, -s, 0.0, 0.0 },
-            [4]f32{ s, c, 0.0, 0.0 },
-            [4]f32{ 0.0, 0.0, 1.0, 0.0 },
-            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-        };
-    }
-
-    // 创建缩放矩阵
-    fn createScaleMatrix(self: *const Engine, x: f32, y: f32, z: f32) [4][4]f32 {
-        _ = self; // 避免未使用参数警告
-        return [4][4]f32{
-            [4]f32{ x, 0.0, 0.0, 0.0 },
-            [4]f32{ 0.0, y, 0.0, 0.0 },
-            [4]f32{ 0.0, 0.0, z, 0.0 },
-            [4]f32{ 0.0, 0.0, 0.0, 1.0 },
-        };
-    }
-
     // 处理窗口大小变化
     fn handleResize(self: *Engine) !void {
         // 如果有hwnd，使用传统方法获取窗口大小
@@ -545,6 +470,8 @@ pub const Engine = struct {
     pub fn resizeRenderer(self: *Engine, width: u32, height: u32) !void {
         if (self.renderer) |*r| {
             try r.resize(width, height);
+            // 更新相机宽高比
+            self.camera.setAspectRatio(width, height);
         }
     }
 

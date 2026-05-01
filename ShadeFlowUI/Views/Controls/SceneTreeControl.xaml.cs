@@ -681,11 +681,11 @@ namespace ShadeFlow.Views.Controls
                     }
                 }
 
-                Debug.WriteLine("Render scene rebuilt successfully");
+                Debug.WriteLine("渲染场景重建成功");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error rebuilding render scene: {ex.Message}");
+                Debug.WriteLine($"重建渲染场景错误: {ex.Message}");
             }
         }
     }

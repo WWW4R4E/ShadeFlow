@@ -330,7 +330,7 @@ pub const Shapes = struct {
             .Cube => {
                 const cube_params = params.Cube;
                 const geometry = generateCube(allocator, cube_params) catch |err| {
-                    std.debug.print("Error generating cube: {}", .{err});
+                    std.debug.print("生成立方体错误: {}", .{err});
                     return;
                 };
                 defer {
@@ -338,13 +338,13 @@ pub const Shapes = struct {
                     allocator.free(geometry.indices);
                 }
                 engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("Error adding cube: {}", .{err});
+                    std.debug.print("添加立方体错误: {}", .{err});
                 };
             },
             .Sphere => {
                 const sphere_params = params.Sphere;
                 const geometry = generateSphere(allocator, sphere_params) catch |err| {
-                    std.debug.print("Error generating sphere: {}", .{err});
+                    std.debug.print("生成球体错误: {}", .{err});
                     return;
                 };
                 defer {
@@ -352,13 +352,13 @@ pub const Shapes = struct {
                     allocator.free(geometry.indices);
                 }
                 engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("Error adding sphere: {}", .{err});
+                    std.debug.print("添加球体错误: {}", .{err});
                 };
             },
             .Cylinder => {
                 const cylinder_params = params.Cylinder;
                 const geometry = generateCylinder(allocator, cylinder_params) catch |err| {
-                    std.debug.print("Error generating cylinder: {}", .{err});
+                    std.debug.print("生成圆柱体错误: {}", .{err});
                     return;
                 };
                 defer {
@@ -366,13 +366,13 @@ pub const Shapes = struct {
                     allocator.free(geometry.indices);
                 }
                 engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("Error adding cylinder: {}", .{err});
+                    std.debug.print("添加圆柱体错误: {}", .{err});
                 };
             },
             .Cone => {
                 const cone_params = params.Cone;
                 const geometry = generateCone(allocator, cone_params) catch |err| {
-                    std.debug.print("Error generating cone: {}", .{err});
+                    std.debug.print("生成圆锥体错误: {}", .{err});
                     return;
                 };
                 defer {
@@ -380,7 +380,7 @@ pub const Shapes = struct {
                     allocator.free(geometry.indices);
                 }
                 engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("Error adding cone: {}", .{err});
+                    std.debug.print("添加圆锥体错误: {}", .{err});
                 };
             },
             else => {},

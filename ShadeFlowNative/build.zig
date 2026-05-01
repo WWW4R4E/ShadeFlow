@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const zigwin32 = b.dependency("zigwin32", .{}).module("win32");
+    const win32 = b.dependency("win32", .{}).module("win32");
 
     const dll_copy_path = "../../ShadeFlowUI/";
 
@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "win32", .module = zigwin32 },
+            .{ .name = "win32", .module = win32 },
         },
     });
 
@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "ShadeFlowNative", .module = root_module },
-                .{ .name = "win32", .module = zigwin32 },
+                .{ .name = "win32", .module = win32 },
             },
         }),
     });
