@@ -78,6 +78,7 @@ namespace ShadeFlow.ViewModels
                 _isInitialized = true;
                 IsRendering = true;
                 StartRenderLoop();
+                RegisterLogCallback();
 
                 Debug.WriteLine("渲染器初始化成功");
             }

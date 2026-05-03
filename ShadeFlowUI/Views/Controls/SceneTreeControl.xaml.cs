@@ -374,7 +374,8 @@ namespace ShadeFlow.Views.Controls
             }
 
             AddGeometryItem("Cube", "");
-            ShadeFlowNative.AddCubeWithParams(size, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            var p = ShadeFlowNative.GeometryParams.Cube(size);
+            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加球体菜单项点击事件
@@ -444,7 +445,8 @@ namespace ShadeFlow.Views.Controls
             }
 
             AddGeometryItem("Sphere", "");
-            ShadeFlowNative.AddSphereWithParams(radius, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            var p = ShadeFlowNative.GeometryParams.Sphere(radius, segments);
+            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加圆柱体菜单项点击事件
@@ -518,7 +520,8 @@ namespace ShadeFlow.Views.Controls
             }
 
             AddGeometryItem("Cylinder", "");
-            ShadeFlowNative.AddCylinderWithParams(radius, height, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            var p = ShadeFlowNative.GeometryParams.Cylinder(radius, height, segments);
+            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加圆锥体菜单项点击事件
@@ -592,7 +595,8 @@ namespace ShadeFlow.Views.Controls
             }
 
             AddGeometryItem("Cone", "");
-            ShadeFlowNative.AddConeWithParams(radius, height, segments, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            var p = ShadeFlowNative.GeometryParams.Cone(radius, height, segments);
+            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
         }
 
         // 添加几何体项到树中
@@ -666,16 +670,28 @@ namespace ShadeFlow.Views.Controls
                         switch (geometryItem.Name)
                         {
                             case "Cube":
-                                ShadeFlowNative.AddCubeWithParams(1.0f, "", "");
+                                {
+                                    var p = ShadeFlowNative.GeometryParams.Cube();
+                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
+                                }
                                 break;
                             case "Sphere":
-                                ShadeFlowNative.AddSphereWithParams(0.5f, 32, "", "");
+                                {
+                                    var p = ShadeFlowNative.GeometryParams.Sphere();
+                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
+                                }
                                 break;
                             case "Cylinder":
-                                ShadeFlowNative.AddCylinderWithParams(0.5f, 1.0f, 32, "", "");
+                                {
+                                    var p = ShadeFlowNative.GeometryParams.Cylinder();
+                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
+                                }
                                 break;
                             case "Cone":
-                                ShadeFlowNative.AddConeWithParams(0.5f, 1.0f, 32, "", "");
+                                {
+                                    var p = ShadeFlowNative.GeometryParams.Cone();
+                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
+                                }
                                 break;
                         }
                     }

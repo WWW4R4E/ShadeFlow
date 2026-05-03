@@ -20,7 +20,6 @@ namespace ShadeFlow.ViewModels
         public HomePageViewModel()
         {
             var renderViewModel = RenderPreViewModel.Instance;
-            
             IsRendering = renderViewModel.IsRendering;
             ErrorMessage = renderViewModel.ErrorMessage;
         }

@@ -160,7 +160,7 @@ namespace ShadeFlow.Views.Controls
             if (point.Properties.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed)
             {
                 _isMouseMiddleButtonPressed = true;
-            }
+            } 
         }
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -181,17 +181,15 @@ namespace ShadeFlow.Views.Controls
             var deltaX = (float)(currentPosition.X - _lastMousePosition.X);
             var deltaY = (float)(currentPosition.Y - _lastMousePosition.Y);
 
-            var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
-            if (ctrlState.HasFlag(CoreVirtualKeyStates.Down) && _isMouseMiddleButtonPressed)
+            var ShiftlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
+            var altState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.LeftMenu);
+            if (ShiftlState.HasFlag(CoreVirtualKeyStates.Down) && _isMouseMiddleButtonPressed)
             {
-                var (x, y, z) = ShadeFlowNative.GetCameraPosition();
-                var distance = ShadeFlowNative.GetCameraDistance();
-                var panSpeed = 0.001f * distance;
-                var newX = x - deltaX * panSpeed;
-                var newY = y + deltaY * panSpeed;
-                ShadeFlowNative.SetCameraPosition(newX, newY, z);
+                ShadeFlowNative.CameraPan(deltaX, deltaY);
+            }else if(altState.HasFlag(CoreVirtualKeyStates.Down) && _isMouseMiddleButtonPressed)
+            {
+                ShadeFlowNative.CameraRotateAroundCenter(-deltaX, -deltaY);
             }
-
             _lastMousePosition = currentPosition;
         }
 

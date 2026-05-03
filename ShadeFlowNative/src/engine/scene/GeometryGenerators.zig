@@ -1,12 +1,9 @@
 const std = @import("std");
 
-const Engine = @import("Engine.zig").Engine;
-const Vertex = @import("Engine.zig").Vertex;
+const Vertex = @import("../Engine.zig").Vertex;
 
-pub const Shapes = struct {
-
-    // 几何形状参数结构
-
+// 几何形状参数结构
+pub const GeometryGenerators = struct {
     // 立方体参数
     pub const CubeParams = struct {
         size: f32 = 1.0, // 立方体大小
@@ -32,12 +29,33 @@ pub const Shapes = struct {
         segments: u32 = 32, // 分段数
     };
 
+    // 线段参数
+    pub const LineParams = struct {
+        x1: f32 = 0.0, // 起点x
+        y1: f32 = 0.0, // 起点y
+        x2: f32 = 1.0, // 终点x
+        y2: f32 = 1.0, // 终点y
+        z: f32 = 0.0, // z坐标
+    };
+
+    // 矩形参数
+    pub const RectParams = struct {
+        x: f32 = 0.0, // 左上角x
+        y: f32 = 0.0, // 左上角y
+        width: f32 = 1.0, // 宽度
+        height: f32 = 1.0, // 高度
+        z: f32 = 0.0, // z坐标
+    };
+
     // 几何形状参数联合体
     pub const GeometryParams = union(enum) {
         Cube: CubeParams,
         Sphere: SphereParams,
         Cylinder: CylinderParams,
         Cone: ConeParams,
+        Line: LineParams,
+        Rect: RectParams,
+        FilledRect: RectParams,
     };
 
     // 几何形状类型
@@ -48,11 +66,15 @@ pub const Shapes = struct {
         Sphere = 3,
         Cylinder = 4,
         Cone = 5,
+        Line = 6,
+        Rect = 7,
+        FilledRect = 8,
     };
+
     // 动态几何生成函数
 
     // 生成立方体
-    fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !struct { vertices: []Vertex, indices: []u16 } {
         const half_size = params.size / 2.0;
 
         // 立方体有8个顶点
@@ -114,7 +136,7 @@ pub const Shapes = struct {
     }
 
     // 生成球体
-    fn generateSphere(allocator: std.mem.Allocator, params: SphereParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateSphere(allocator: std.mem.Allocator, params: SphereParams) !struct { vertices: []Vertex, indices: []u16 } {
         const radius = params.radius;
         const segments = params.segments;
 
@@ -169,7 +191,7 @@ pub const Shapes = struct {
     }
 
     // 生成圆柱体
-    fn generateCylinder(allocator: std.mem.Allocator, params: CylinderParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCylinder(allocator: std.mem.Allocator, params: CylinderParams) !struct { vertices: []Vertex, indices: []u16 } {
         const radius = params.radius;
         const height = params.height;
         const segments = params.segments;
@@ -247,7 +269,7 @@ pub const Shapes = struct {
     }
 
     // 生成圆锥体
-    fn generateCone(allocator: std.mem.Allocator, params: ConeParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCone(allocator: std.mem.Allocator, params: ConeParams) !struct { vertices: []Vertex, indices: []u16 } {
         const radius = params.radius;
         const height = params.height;
         const segments = params.segments;
@@ -304,86 +326,55 @@ pub const Shapes = struct {
         return .{ .vertices = vertices, .indices = indices };
     }
 
-    // 添加几何对象（使用默认参数）
-    pub fn addGeometryObject(engine: *Engine, geometry_type: GeometryType, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
-        // 使用默认参数创建几何体
-        const params = switch (geometry_type) {
-            .Cube => GeometryParams{ .Cube = CubeParams{} },
-            .Sphere => GeometryParams{ .Sphere = SphereParams{} },
-            .Cylinder => GeometryParams{ .Cylinder = CylinderParams{} },
-            .Cone => GeometryParams{ .Cone = ConeParams{} },
-            else => return,
-        };
+    // 生成线段
+    pub fn generateLine(allocator: std.mem.Allocator, params: LineParams) !struct { vertices: []Vertex, indices: []u16 } {
+        var vertices = try allocator.alloc(Vertex, 2);
+        vertices[0] = Vertex{ .position = [3]f32{ params.x1, params.y1, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[1] = Vertex{ .position = [3]f32{ params.x2, params.y2, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
 
-        // 调用带参数的函数，位置默认为原点
-        addGeometryObjectWithParams(engine, geometry_type, &params, 0.0, 0.0, 0.0, vertex_shader_path, pixel_shader_path);
+        var indices = try allocator.alloc(u16, 2);
+        indices[0] = 0;
+        indices[1] = 1;
+
+        return .{ .vertices = vertices, .indices = indices };
     }
 
-    // 添加带参数的几何对象
-    pub fn addGeometryObjectWithParams(engine: *Engine, geometry_type: GeometryType, params: *const GeometryParams, pos_x: f32, pos_y: f32, pos_z: f32, vertex_shader_path: [*:0]const u8, pixel_shader_path: [*:0]const u8) void {
-        const allocator = std.heap.page_allocator;
-        // 由于export导出给了C ABI，所以这里的路径参数是[*:0]const u8，zig内部又需要转换为[]u8
-        const vertex_path = std.mem.sliceTo(vertex_shader_path, 0);
-        const pixel_path = std.mem.sliceTo(pixel_shader_path, 0);
+    // 生成矩形边框
+    pub fn generateRect(allocator: std.mem.Allocator, params: RectParams) !struct { vertices: []Vertex, indices: []u16 } {
+        var vertices = try allocator.alloc(Vertex, 4);
+        vertices[0] = Vertex{ .position = [3]f32{ params.x, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[1] = Vertex{ .position = [3]f32{ params.x + params.width, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[2] = Vertex{ .position = [3]f32{ params.x + params.width, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[3] = Vertex{ .position = [3]f32{ params.x, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
 
-        switch (geometry_type) {
-            .Cube => {
-                const cube_params = params.Cube;
-                const geometry = generateCube(allocator, cube_params) catch |err| {
-                    std.debug.print("生成立方体错误: {}", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加立方体错误: {}", .{err});
-                };
-            },
-            .Sphere => {
-                const sphere_params = params.Sphere;
-                const geometry = generateSphere(allocator, sphere_params) catch |err| {
-                    std.debug.print("生成球体错误: {}", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加球体错误: {}", .{err});
-                };
-            },
-            .Cylinder => {
-                const cylinder_params = params.Cylinder;
-                const geometry = generateCylinder(allocator, cylinder_params) catch |err| {
-                    std.debug.print("生成圆柱体错误: {}", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加圆柱体错误: {}", .{err});
-                };
-            },
-            .Cone => {
-                const cone_params = params.Cone;
-                const geometry = generateCone(allocator, cone_params) catch |err| {
-                    std.debug.print("生成圆锥体错误: {}", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                engine.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加圆锥体错误: {}", .{err});
-                };
-            },
-            else => {},
-        }
+        // 使用LINESTRIP需要4个顶点，索引为0,1,2,3,0
+        var indices = try allocator.alloc(u16, 5);
+        indices[0] = 0;
+        indices[1] = 1;
+        indices[2] = 2;
+        indices[3] = 3;
+        indices[4] = 0;
+
+        return .{ .vertices = vertices, .indices = indices };
+    }
+
+    // 生成填充矩形
+    pub fn generateFilledRect(allocator: std.mem.Allocator, params: RectParams) !struct { vertices: []Vertex, indices: []u16 } {
+        var vertices = try allocator.alloc(Vertex, 4);
+        vertices[0] = Vertex{ .position = [3]f32{ params.x, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[1] = Vertex{ .position = [3]f32{ params.x + params.width, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[2] = Vertex{ .position = [3]f32{ params.x + params.width, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+        vertices[3] = Vertex{ .position = [3]f32{ params.x, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
+
+        // 两个三角形: 0,1,2 和 0,2,3
+        var indices = try allocator.alloc(u16, 6);
+        indices[0] = 0;
+        indices[1] = 1;
+        indices[2] = 2;
+        indices[3] = 0;
+        indices[4] = 2;
+        indices[5] = 3;
+
+        return .{ .vertices = vertices, .indices = indices };
     }
 };

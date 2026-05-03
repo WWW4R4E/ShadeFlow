@@ -2,11 +2,11 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
-const Engine = @import("engine/core/Engine.zig").Engine;
-const Vertex = @import("engine/core/Engine.zig").Vertex;
-const Shapes = @import("engine/core/Shapes.zig").Shapes;
+const Engine = @import("engine/Engine.zig").Engine;
+const Vertex = @import("engine/Engine.zig").Vertex;
 const Window = @import("engine/optional/Window.zig").Window;
-const Renderer = @import("engine/renderer/Renderer.zig").Renderer;
+const Renderer = @import("engine/render/Renderer.zig").Renderer;
+const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;
 
 var gpa = std.heap.DebugAllocator(.{}){};
 var allocator = gpa.allocator();
@@ -111,7 +111,7 @@ export fn ShadeFlow_ResizeRenderer(width: u32, height: u32) bool {
 /// 渲染
 export fn ShadeFlow_RenderFrame() bool {
     if (engine_instance) |engine| {
-        _ = engine.update();
+        _ = engine.update() catch unreachable;
         engine.render();
         return true;
     }
@@ -180,11 +180,11 @@ export fn ShadeFlow_AddCubeWithParams(
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const params = Shapes.GeometryParams{
-            .Cube = Shapes.CubeParams{ .size = size },
+        const params = GeometryGenerators.GeometryParams{
+            .Cube = GeometryGenerators.CubeParams{ .size = size },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cube, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCubeWithParams] Engine not initialized", .{});
@@ -202,11 +202,11 @@ export fn ShadeFlow_AddSphereWithParams(
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const params = Shapes.GeometryParams{
-            .Sphere = Shapes.SphereParams{ .radius = radius, .segments = segments },
+        const params = GeometryGenerators.GeometryParams{
+            .Sphere = GeometryGenerators.SphereParams{ .radius = radius, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Sphere, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddSphereWithParams] Engine not initialized", .{});
@@ -225,11 +225,11 @@ export fn ShadeFlow_AddCylinderWithParams(
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const params = Shapes.GeometryParams{
-            .Cylinder = Shapes.CylinderParams{ .radius = radius, .height = height, .segments = segments },
+        const params = GeometryGenerators.GeometryParams{
+            .Cylinder = GeometryGenerators.CylinderParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCylinderWithParams] Engine not initialized", .{});
@@ -248,11 +248,11 @@ export fn ShadeFlow_AddConeWithParams(
     pixel_shader_path_ptr: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const params = Shapes.GeometryParams{
-            .Cone = Shapes.ConeParams{ .radius = radius, .height = height, .segments = segments },
+        const params = GeometryGenerators.GeometryParams{
+            .Cone = GeometryGenerators.ConeParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cone, &params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddConeWithParams] Engine not initialized", .{});
@@ -266,8 +266,8 @@ export fn ShadeFlow_AddGeometryObject(
     pixel_shader_path: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const geom_type = @as(Shapes.GeometryType, @enumFromInt(geometry_type));
-        Shapes.addGeometryObject(engine, geom_type, vertex_shader_path, pixel_shader_path);
+        const geom_type = @as(GeometryGenerators.GeometryType, @enumFromInt(geometry_type));
+        engine.addGeometryObject(geom_type, vertex_shader_path, pixel_shader_path);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddGeometryObject] Engine not initialized", .{});
@@ -275,9 +275,14 @@ export fn ShadeFlow_AddGeometryObject(
 }
 
 /// 添加带参数的几何对象
+/// 与C# GeometryParams内存布局对齐的C-ABI结构
+const CCubeParams = extern struct { type: c_int, size: f32 };
+const CSphereParams = extern struct { type: c_int, radius: f32, segments: u32 };
+const CCylinderParams = extern struct { type: c_int, radius: f32, height: f32, segments: u32 };
+const CConeParams = extern struct { type: c_int, radius: f32, height: f32, segments: u32 };
+
 export fn ShadeFlow_AddGeometryObjectWithParams(
-    geometry_type: c_int,
-    params: *const Shapes.GeometryParams,
+    c_params: *const anyopaque,
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
@@ -285,8 +290,38 @@ export fn ShadeFlow_AddGeometryObjectWithParams(
     pixel_shader_path: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const geom_type = @as(Shapes.GeometryType, @enumFromInt(geometry_type));
-        Shapes.addGeometryObjectWithParams(engine, geom_type, params, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path);
+        const type_ptr: *const c_int = @ptrCast(@alignCast(c_params));
+        const geom_type = @as(GeometryGenerators.GeometryType, @enumFromInt(type_ptr.*));
+
+        const params = switch (geom_type) {
+            .Cube, .Quad, .Triangle => blk: {
+                const p: *const CCubeParams = @ptrCast(@alignCast(c_params));
+                break :blk GeometryGenerators.GeometryParams{ .Cube = GeometryGenerators.CubeParams{ .size = p.size } };
+            },
+            .Sphere => blk: {
+                const p: *const CSphereParams = @ptrCast(@alignCast(c_params));
+                break :blk GeometryGenerators.GeometryParams{ .Sphere = GeometryGenerators.SphereParams{ .radius = p.radius, .segments = p.segments } };
+            },
+            .Cylinder => blk: {
+                const p: *const CCylinderParams = @ptrCast(@alignCast(c_params));
+                break :blk GeometryGenerators.GeometryParams{ .Cylinder = GeometryGenerators.CylinderParams{ .radius = p.radius, .height = p.height, .segments = p.segments } };
+            },
+            .Cone => blk: {
+                const p: *const CConeParams = @ptrCast(@alignCast(c_params));
+                break :blk GeometryGenerators.GeometryParams{ .Cone = GeometryGenerators.ConeParams{ .radius = p.radius, .height = p.height, .segments = p.segments } };
+            },
+            .Line => blk: {
+                break :blk GeometryGenerators.GeometryParams{ .Line = GeometryGenerators.LineParams{} };
+            },
+            .Rect => blk: {
+                break :blk GeometryGenerators.GeometryParams{ .Rect = GeometryGenerators.RectParams{} };
+            },
+            .FilledRect => blk: {
+                break :blk GeometryGenerators.GeometryParams{ .FilledRect = GeometryGenerators.RectParams{} };
+            },
+        };
+
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path, pixel_shader_path);
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddGeometryObjectWithParams] Engine not initialized", .{});
@@ -297,24 +332,23 @@ export fn ShadeFlow_AddGeometryObjectWithParams(
 /// 获取相机位置
 export fn ShadeFlow_GetCameraPosition(x: *f32, y: *f32, z: *f32) void {
     if (engine_instance) |engine| {
-        x.* = engine.camera.position[0];
-        y.* = engine.camera.position[1];
-        z.* = engine.camera.position[2];
-    }
-}
-
-/// 设置相机位置
-export fn ShadeFlow_SetCameraPosition(x: f32, y: f32, z: f32) void {
-    if (engine_instance) |engine| {
-        engine.camera.position = .{ x, y, z };
+        const pos = engine.camera.computePosition();
+        x.* = pos[0];
+        y.* = pos[1];
+        z.* = pos[2];
+        log(LogLevel.Debug, "[ShadeFlow_GetCameraPosition] Camera position: {d:.2}, {d:.2}, {d:.2}\n", .{ x.*, y.*, z.* });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_GetCameraPosition] Engine not initialized\n", .{});
     }
 }
 
 /// 获取相机距离
 export fn ShadeFlow_GetCameraDistance() f32 {
     if (engine_instance) |engine| {
+        log(LogLevel.Debug, "[ShadeFlow_GetCameraDistance] Camera distance: {d:.2}\n", .{engine.camera.distance});
         return engine.camera.distance;
     }
+    log(LogLevel.Error, "[ShadeFlow_GetCameraDistance] Engine not initialized, returning default 3.0\n", .{});
     return 3.0;
 }
 
@@ -323,5 +357,58 @@ export fn ShadeFlow_SetCameraDistance(distance: f32) void {
     if (engine_instance) |engine| {
         engine.camera.distance = distance;
         engine.camera.target_distance = distance;
+        log(LogLevel.Info, "[ShadeFlow_SetCameraDistance] Camera distance set to: {d:.2}\n", .{distance});
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_SetCameraDistance] Engine not initialized\n", .{});
+    }
+}
+
+/// 相机缩放
+export fn ShadeFlow_CameraZoom(delta: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera.zoom(delta);
+        log(LogLevel.Debug, "[ShadeFlow_CameraZoom] Camera zoom delta: {d:.2}\n", .{delta});
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_CameraZoom] Engine not initialized\n", .{});
+    }
+}
+
+/// 相机平移
+export fn ShadeFlow_CameraPan(delta_x: f32, delta_y: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera.pan(delta_x, delta_y);
+        log(LogLevel.Debug, "[ShadeFlow_CameraPan] Camera pan delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_CameraPan] Engine not initialized\n", .{});
+    }
+}
+
+/// 绕中心旋转相机
+export fn ShadeFlow_CameraRotateAroundCenter(delta_x: f32, delta_y: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera.rotateAroundCenter(delta_x, delta_y);
+        log(LogLevel.Debug, "[ShadeFlow_CameraRotateAroundCenter] Camera rotate delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_CameraRotateAroundCenter] Engine not initialized\n", .{});
+    }
+}
+
+/// 相机自转
+export fn ShadeFlow_CameraRotateSelf(delta_x: f32, delta_y: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera.rotateSelf(delta_x, delta_y);
+        log(LogLevel.Debug, "[ShadeFlow_CameraRotateSelf] Camera self rotate delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_CameraRotateSelf] Engine not initialized\n", .{});
+    }
+}
+
+/// 设置相机宽高比
+export fn ShadeFlow_CameraSetAspectRatio(width: u32, height: u32) void {
+    if (engine_instance) |engine| {
+        engine.camera.setAspectRatio(width, height);
+        log(LogLevel.Debug, "[ShadeFlow_CameraSetAspectRatio] Aspect ratio set to: {}x{}\n", .{ width, height });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_CameraSetAspectRatio] Engine not initialized\n", .{});
     }
 }

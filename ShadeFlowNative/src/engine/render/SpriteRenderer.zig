@@ -2,10 +2,10 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
-const Buffer = @import("../d3d11/Buffer.zig").Buffer;
-const Shader = @import("../d3d11/Shader.zig").Shader;
-const Texture = @import("../d3d11/Texture.zig").Texture;
-const Renderer = @import("../Renderer.zig").Renderer;
+const Buffer = @import("d3d11/Buffer.zig").Buffer;
+const Shader = @import("d3d11/Shader.zig").Shader;
+const Texture = @import("d3d11/Texture.zig").Texture;
+const Renderer = @import("Renderer.zig").Renderer;
 
 pub const SpriteRenderer = struct {
     renderer: *Renderer,

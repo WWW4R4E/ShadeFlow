@@ -1,7 +1,8 @@
 const std = @import("std");
-
 const win32 = @import("win32").everything;
 const L = win32.L;
+
+const Input = @import("Input.zig").Input;
 
 pub const Window = struct {
     hwnd: win32.HWND,
@@ -9,19 +10,59 @@ pub const Window = struct {
     allocator: std.mem.Allocator,
     running: bool,
     size_changed: bool,
-    // 输入状态
-    mouse_x: i32 = 0,
-    mouse_y: i32 = 0,
-    mouse_delta_x: i32 = 0,
-    mouse_delta_y: i32 = 0,
-    mouse_wheel: i32 = 0,
-    mouse_buttons: [5]bool = [_]bool{false} ** 5,
-    keyboard_state: [256]bool = [_]bool{false} ** 256,
+    input: Input,
+    // 自定义拖拽/缩放状态（替代 DefWindowProc 模态循环）
+    is_dragging: bool = false,
+    is_resizing: bool = false,
+    drag_offset_x: i32 = 0,
+    drag_offset_y: i32 = 0,
+    resize_edge: u32 = 0,
+    resize_rect: win32.RECT = undefined,
 
+    const MIN_WIDTH: i32 = 320;
+    const MIN_HEIGHT: i32 = 240;
     const CLASS_NAME = L("ZigDx11WindowClass");
 
-    // 窗口实例指针映射，用于在窗口过程中访问Window实例
-    var window_instances: std.AutoHashMap(win32.HWND, *Window) = undefined;
+    fn resizeWindow(self: *Window, hwnd: win32.HWND, sx: i32, sy: i32) void {
+        var r = self.resize_rect;
+
+        switch (self.resize_edge) {
+            win32.HTLEFT => r.left = sx,
+            win32.HTRIGHT => r.right = sx,
+            win32.HTTOP => r.top = sy,
+            win32.HTBOTTOM => r.bottom = sy,
+            win32.HTTOPLEFT => {
+                r.left = sx;
+                r.top = sy;
+            },
+            win32.HTTOPRIGHT => {
+                r.right = sx;
+                r.top = sy;
+            },
+            win32.HTBOTTOMLEFT => {
+                r.left = sx;
+                r.bottom = sy;
+            },
+            win32.HTBOTTOMRIGHT => {
+                r.right = sx;
+                r.bottom = sy;
+            },
+            else => return,
+        }
+
+        if (r.right - r.left < MIN_WIDTH) {
+            if (r.left != self.resize_rect.left) r.left = r.right - MIN_WIDTH else r.right = r.left + MIN_WIDTH;
+        }
+        if (r.bottom - r.top < MIN_HEIGHT) {
+            if (r.top != self.resize_rect.top) r.top = r.bottom - MIN_HEIGHT else r.bottom = r.top + MIN_HEIGHT;
+        }
+
+        _ = win32.SetWindowPos(hwnd, null, r.left, r.top, r.right - r.left, r.bottom - r.top, .{
+            .NOZORDER = 1,
+            .NOACTIVATE = 1,
+        });
+        self.size_changed = true;
+    }
 
     fn wndProc(
         hwnd: win32.HWND,
@@ -29,10 +70,8 @@ pub const Window = struct {
         wParam: win32.WPARAM,
         lParam: win32.LPARAM,
     ) callconv(.winapi) win32.LRESULT {
-        // 从窗口获取用户数据
         const window_ptr_value = win32.GetWindowLongPtrW(hwnd, win32.GWLP_USERDATA);
         if (window_ptr_value != 0) {
-            // 将isize值转换回Window指针
             const window_ptr: *Window = @ptrFromInt(@as(usize, @bitCast(window_ptr_value)));
 
             switch (uMsg) {
@@ -40,94 +79,139 @@ pub const Window = struct {
                     win32.PostQuitMessage(0);
                     return 0;
                 },
-                win32.WM_PAINT => {
-                    var ps: win32.PAINTSTRUCT = undefined;
-                    const hdc = win32.BeginPaint(hwnd, &ps);
-                    const background_brush = win32.GetStockObject(win32.BLACK_BRUSH);
-                    _ = win32.FillRect(hdc, &ps.rcPaint, @ptrCast(background_brush));
-                    _ = win32.EndPaint(hwnd, &ps);
-                    return 0;
-                },
-                win32.WM_SIZE => {
-                    // 设置大小变化标志
-                    window_ptr.size_changed = true;
+                win32.WM_NCHITTEST => {
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
-                win32.WM_MOUSEMOVE => {
-                    // 处理鼠标移动
+                win32.WM_NCLBUTTONDOWN => {
+                    const hit_test = @as(u16, @truncate(@as(u32, @intCast(wParam))));
                     const lParam_usize = @as(usize, @bitCast(lParam));
-                    const x = @as(u16, @truncate(lParam_usize));
-                    const y = @as(u16, @truncate(lParam_usize >> 16));
-                    const new_mouse_x = @as(i16, @bitCast(x));
-                    const new_mouse_y = @as(i16, @bitCast(y));
+                    const screen_x = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize)))));
+                    const screen_y = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16)))));
 
-                    // 计算鼠标 delta
-                    window_ptr.mouse_delta_x = new_mouse_x - window_ptr.mouse_x;
-                    window_ptr.mouse_delta_y = new_mouse_y - window_ptr.mouse_y;
+                    switch (hit_test) {
+                        win32.HTCAPTION => {
+                            var rect: win32.RECT = undefined;
+                            _ = win32.GetWindowRect(hwnd, &rect);
+                            window_ptr.drag_offset_x = screen_x - rect.left;
+                            window_ptr.drag_offset_y = screen_y - rect.top;
+                            window_ptr.is_dragging = true;
+                            _ = win32.SetCapture(hwnd);
+                            return 0;
+                        },
+                        win32.HTLEFT, win32.HTRIGHT, win32.HTTOP, win32.HTBOTTOM, win32.HTTOPLEFT, win32.HTTOPRIGHT, win32.HTBOTTOMLEFT, win32.HTBOTTOMRIGHT => {
+                            window_ptr.resize_edge = hit_test;
+                            _ = win32.GetWindowRect(hwnd, &window_ptr.resize_rect);
+                            window_ptr.is_resizing = true;
+                            _ = win32.SetCapture(hwnd);
+                            return 0;
+                        },
+                        else => return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam),
+                    }
+                },
+                win32.WM_MOUSEMOVE => {
+                    const lParam_usize = @as(usize, @bitCast(lParam));
+                    const cx = @as(i16, @bitCast(@as(u16, @truncate(lParam_usize))));
+                    const cy = @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16))));
 
-                    // 更新鼠标位置
-                    window_ptr.mouse_x = new_mouse_x;
-                    window_ptr.mouse_y = new_mouse_y;
+                    window_ptr.input.mouse_delta_x = @as(i32, cx) - window_ptr.input.mouse_x;
+                    window_ptr.input.mouse_delta_y = @as(i32, cy) - window_ptr.input.mouse_y;
+                    window_ptr.input.mouse_x = @as(i32, cx);
+                    window_ptr.input.mouse_y = @as(i32, cy);
+
+                    if (window_ptr.is_dragging) {
+                        var pt: win32.POINT = .{ .x = @intCast(cx), .y = @intCast(cy) };
+                        _ = win32.ClientToScreen(hwnd, &pt);
+                        _ = win32.SetWindowPos(hwnd, null, pt.x - window_ptr.drag_offset_x, pt.y - window_ptr.drag_offset_y, 0, 0, .{
+                            .NOSIZE = 1,
+                            .NOZORDER = 1,
+                            .NOACTIVATE = 1,
+                        });
+                        return 0;
+                    }
+
+                    if (window_ptr.is_resizing) {
+                        var pt: win32.POINT = .{ .x = @intCast(cx), .y = @intCast(cy) };
+                        _ = win32.ClientToScreen(hwnd, &pt);
+                        window_ptr.resizeWindow(hwnd, pt.x, pt.y);
+                        return 0;
+                    }
+
+                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
+                },
+                // win32.WM_NCMOUSEMOVE => {
+                //     const lParam_usize = @as(usize, @bitCast(lParam));
+                //     const sx = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize)))));
+                //     const sy = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16)))));
+
+                //     if (window_ptr.is_dragging) {
+                //         _ = win32.SetWindowPos(hwnd, null, sx - window_ptr.drag_offset_x, sy - window_ptr.drag_offset_y, 0, 0, .{
+                //             .NOZORDER = 1,
+                //             .NOACTIVATE = 1,
+                //         });
+                //         return 0;
+                //     }
+
+                //     if (window_ptr.is_resizing) {
+                //         window_ptr.resizeWindow(hwnd, sx, sy);
+                //         return 0;
+                //     }
+                //     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
+                // },
+                win32.WM_LBUTTONUP => {
+                    if (window_ptr.is_dragging or window_ptr.is_resizing) {
+                        window_ptr.is_dragging = false;
+                        window_ptr.is_resizing = false;
+                        _ = win32.ReleaseCapture();
+                        return 0;
+                    }
+                    window_ptr.input.mouse_state[0] = false;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_LBUTTONDOWN => {
-                    window_ptr.mouse_buttons[0] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_LBUTTONUP => {
-                    window_ptr.mouse_buttons[0] = false;
+                    window_ptr.input.mouse_state[0] = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_RBUTTONDOWN => {
-                    window_ptr.mouse_buttons[1] = true;
+                    window_ptr.input.mouse_state[1] = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_RBUTTONUP => {
-                    window_ptr.mouse_buttons[1] = false;
+                    window_ptr.input.mouse_state[1] = false;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_MBUTTONDOWN => {
-                    window_ptr.mouse_buttons[2] = true;
+                    window_ptr.input.mouse_state[2] = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_MBUTTONUP => {
-                    window_ptr.mouse_buttons[2] = false;
+                    window_ptr.input.mouse_state[2] = false;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_XBUTTONDOWN => {
                     const button = (@as(u16, @truncate(wParam >> 16)) & 0x000F);
-                    if (button == 1) {
-                        window_ptr.mouse_buttons[3] = true;
-                    } else if (button == 2) {
-                        window_ptr.mouse_buttons[4] = true;
-                    }
+                    if (button == 1) window_ptr.input.mouse_state[3] = true else if (button == 2) window_ptr.input.mouse_state[4] = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_XBUTTONUP => {
                     const button = (@as(u16, @truncate(wParam >> 16)) & 0x000F);
-                    if (button == 1) {
-                        window_ptr.mouse_buttons[3] = false;
-                    } else if (button == 2) {
-                        window_ptr.mouse_buttons[4] = false;
-                    }
+                    if (button == 1) window_ptr.input.mouse_state[3] = false else if (button == 2) window_ptr.input.mouse_state[4] = false;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_MOUSEWHEEL => {
-                    // 处理鼠标滚轮
                     const delta = @as(i16, @bitCast(@as(u16, @truncate(wParam >> 16))));
-                    window_ptr.mouse_wheel = delta;
+                    window_ptr.input.mouse_wheel = delta;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_KEYDOWN => {
-                    // 处理键盘按下
-                    const key_code = @as(u8, @truncate(wParam));
-                    window_ptr.keyboard_state[key_code] = true;
+                    window_ptr.input.keyboard_state[@as(u8, @truncate(wParam))] = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 win32.WM_KEYUP => {
-                    // 处理键盘释放
-                    const key_code = @as(u8, @truncate(wParam));
-                    window_ptr.keyboard_state[key_code] = false;
+                    window_ptr.input.keyboard_state[@as(u8, @truncate(wParam))] = false;
+                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
+                },
+                win32.WM_SIZE => {
+                    window_ptr.size_changed = true;
                     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
                 },
                 else => return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam),
@@ -177,7 +261,6 @@ pub const Window = struct {
 
         const hdc = win32.GetDC(hwnd) orelse return error.FailedToGetDeviceContext;
 
-        // 为窗口分配内存
         const window_ptr = try allocator.create(Window);
 
         window_ptr.* = Window{
@@ -186,6 +269,7 @@ pub const Window = struct {
             .hdc = hdc,
             .running = true,
             .size_changed = false,
+            .input = Input.init(),
         };
 
         _ = win32.SetWindowLongPtrW(hwnd, win32.GWLP_USERDATA, @as(isize, @intCast(@intFromPtr(window_ptr))));
@@ -196,16 +280,12 @@ pub const Window = struct {
     pub fn deinit(self: *Window) void {
         _ = win32.ReleaseDC(self.hwnd, self.hdc);
         _ = win32.DestroyWindow(self.hwnd);
-
-        // 清理窗口实例内存
         self.allocator.destroy(self);
     }
 
-    // 获取窗口客户区域大小
     pub fn getClientSize(self: *Window) struct { width: u32, height: u32 } {
         var client_rect: win32.RECT = undefined;
         _ = win32.GetClientRect(self.hwnd, &client_rect);
-
         return .{
             .width = @intCast(client_rect.right - client_rect.left),
             .height = @intCast(client_rect.bottom - client_rect.top),
@@ -224,52 +304,13 @@ pub const Window = struct {
                 self.running = false;
                 return false;
             }
-
             _ = win32.TranslateMessage(&msg);
             _ = win32.DispatchMessageW(&msg);
         }
         return self.running;
     }
 
-    // 输入状态获取方法
-    pub fn getMousePosition(self: *Window) struct { x: i32, y: i32 } {
-        return .{ .x = self.mouse_x, .y = self.mouse_y };
-    }
-
-    pub fn getMouseDelta(self: *Window) struct { x: i32, y: i32 } {
-        return .{ .x = self.mouse_delta_x, .y = self.mouse_delta_y };
-    }
-
-    pub fn getMouseWheel(self: *Window) i32 {
-        return self.mouse_wheel;
-    }
-
-    pub fn isMouseButtonPressed(self: *Window, button_index: u32) bool {
-        if (button_index < self.mouse_buttons.len) {
-            return self.mouse_buttons[button_index];
-        }
-        return false;
-    }
-
-    pub fn isKeyPressed(self: *Window, key_code: u8) bool {
-        return self.keyboard_state[key_code];
-    }
-
-    pub fn isKeyPressedFromEnum(self: *Window, key: win32.VIRTUAL_KEY) bool {
-        const key_code = @intFromEnum(key);
-        if (key_code < 256) {
-            return self.keyboard_state[@intCast(key_code)];
-        }
-        return false;
-    }
-
-    // 重置输入状态
-    pub fn resetMouseDelta(self: *Window) void {
-        self.mouse_delta_x = 0;
-        self.mouse_delta_y = 0;
-    }
-
-    pub fn resetMouseWheel(self: *Window) void {
-        self.mouse_wheel = 0;
+    pub fn getInput(self: *Window) *Input {
+        return &self.input;
     }
 };

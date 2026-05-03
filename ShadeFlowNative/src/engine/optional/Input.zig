@@ -68,6 +68,10 @@ pub const Input = struct {
         return self.mouse_wheel;
     }
 
+    pub fn resetMouseWheel(self: *Input) void {
+        self.mouse_wheel = 0;
+    }
+
     pub fn isKeyPressed(self: *Input, key_code: u8) bool {
         return self.keyboard_state[key_code];
     }
@@ -96,5 +100,25 @@ pub const Input = struct {
             return self.mouse_wheel;
         }
         return 0;
+    }
+
+    // 检查是否为缩放输入（Ctrl + 鼠标滚轮）
+    pub fn isZoomInput(self: *Input) bool {
+        return self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.mouse_wheel != 0;
+    }
+
+    // 检查是否为平移输入（Ctrl + 鼠标中键）
+    pub fn isPanInput(self: *Input) bool {
+        return self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
+    }
+
+    // 检查是否为轨道旋转输入（鼠标中键，不按Alt和Ctrl）
+    pub fn isOrbitInput(self: *Input) bool {
+        return !self.isKeyPressedFromEnum(win32.VK_MENU) and !self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
+    }
+
+    // 检查是否为自转输入（Alt + 鼠标中键）
+    pub fn isSelfRotateInput(self: *Input) bool {
+        return self.isKeyPressedFromEnum(win32.VK_MENU) and !self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
     }
 };

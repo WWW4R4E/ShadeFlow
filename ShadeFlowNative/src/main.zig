@@ -3,10 +3,10 @@ const Io = std.Io;
 
 const win32 = @import("win32").everything;
 
-const Engine = @import("engine/core/Engine.zig").Engine;
-const Vertex = @import("engine/core/Engine.zig").Vertex;
-const Shapes = @import("engine/core/Shapes.zig").Shapes;
+const Engine = @import("engine/Engine.zig").Engine;
+const Vertex = @import("engine/Engine.zig").Vertex;
 const Window = @import("engine/optional/Window.zig").Window;
+const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
@@ -25,7 +25,7 @@ pub fn main() !void {
         allocator.destroy(engine);
     }
 
-    const cylinder_params = Shapes.GeometryParams{ .Cylinder = Shapes.CylinderParams{ .radius = 0.5, .height = 1.0 } };
+    const object_params = GeometryGenerators.GeometryParams{ .Cube = GeometryGenerators.CubeParams{ .size = 1.0 } };
 
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
@@ -47,7 +47,7 @@ pub fn main() !void {
     const ps_path_cstr = try allocator.dupeZ(u8, ps_path);
     defer allocator.free(ps_path_cstr);
     // 因为addGeometryObjectWithParams导出给了C ABI，所以这里需要转换为[*:0]const u8，而不是[]u8
-    Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &cylinder_params, 0.0, 0.0, 0.0, vs_path_cstr.ptr, ps_path_cstr.ptr);
-    Shapes.addGeometryObjectWithParams(engine, Shapes.GeometryType.Cylinder, &cylinder_params, 1.0, 2.0, 1.0, vs_path_cstr.ptr, ps_path_cstr.ptr);
+    engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
+    engine.addGeometryObjectWithParams(&object_params, -1, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
     try engine.run();
 }

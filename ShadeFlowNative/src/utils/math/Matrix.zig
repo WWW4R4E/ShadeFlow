@@ -16,7 +16,7 @@ pub const Matrix = struct {
         return result;
     }
 
-    // 创建平移矩阵
+    // 创建平移矩阵(DX默认是行主序vulkan默认列主序)
     pub fn createTranslationMatrix(x: f32, y: f32, z: f32) [4][4]f32 {
         return [4][4]f32{
             [4]f32{ 1.0, 0.0, 0.0, 0.0 },
@@ -71,7 +71,7 @@ pub const Matrix = struct {
             [4]f32{ 0.0, 0.0, 0.0, 1.0 },
         };
     }
-    
+
     // 4x4矩阵与3D向量乘法
     pub fn vectorMultiply4x4(matrix: [4][4]f32, vector: [3]f32) [3]f32 {
         const w = 1.0;

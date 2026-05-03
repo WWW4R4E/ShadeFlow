@@ -1,12 +1,13 @@
 const std = @import("std");
 
-const Matrix = @import("../../../utils/math/Matrix.zig").Matrix;
-const Quaternion = @import("../../../utils/math/Quaternion.zig").Quaternion;
+const Matrix = @import("../../utils/math/Matrix.zig").Matrix;
+const Quaternion = @import("../../utils/math/Quaternion.zig").Quaternion;
+const Transform = @import("../scene/Transform.zig").Transform;
 
 pub const Camera = struct {
-    target: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    transform: Transform = Transform{},
 
-    rotation: Quaternion = Quaternion{},
+    target: [3]f32 = .{ 0.0, 0.0, 0.0 },
 
     fov: f32 = 45.0,
     aspect_ratio: f32 = 16.0 / 9.0,
@@ -16,10 +17,8 @@ pub const Camera = struct {
     distance: f32 = 3.0,
     target_distance: f32 = 3.0,
 
-    position: [3]f32 = .{ 0.0, 0.0, 3.0 },
-
-    fn computePosition(self: *const Camera) [3]f32 {
-        const offset = self.rotation.rotateVector(.{ 0.0, 0.0, self.distance });
+    pub fn computePosition(self: *const Camera) [3]f32 {
+        const offset = self.transform.rotation.rotateVector(.{ 0.0, 0.0, self.distance });
         return [3]f32{
             self.target[0] + offset[0],
             self.target[1] + offset[1],
@@ -28,17 +27,17 @@ pub const Camera = struct {
     }
 
     pub fn getViewMatrix(self: *Camera) [4][4]f32 {
-        self.position = self.computePosition();
+        self.transform.position = self.computePosition();
 
-        const cam_right = self.rotation.rotateVector(.{ 1.0, 0.0, 0.0 });
-        const cam_up = self.rotation.rotateVector(.{ 0.0, 1.0, 0.0 });
-        const cam_forward = self.rotation.rotateVector(.{ 0.0, 0.0, -1.0 });
+        const cam_right = self.transform.rotation.rotateVector(.{ 1.0, 0.0, 0.0 });
+        const cam_up = self.transform.rotation.rotateVector(.{ 0.0, 1.0, 0.0 });
+        const cam_forward = self.transform.rotation.rotateVector(.{ 0.0, 0.0, -1.0 });
 
         return [4][4]f32{
             [4]f32{ cam_right[0], cam_up[0], -cam_forward[0], 0.0 },
             [4]f32{ cam_right[1], cam_up[1], -cam_forward[1], 0.0 },
             [4]f32{ cam_right[2], cam_up[2], -cam_forward[2], 0.0 },
-            [4]f32{ -dotProduct(cam_right, self.position), -dotProduct(cam_up, self.position), dotProduct(cam_forward, self.position), 1.0 },
+            [4]f32{ -dotProduct(cam_right, self.transform.position), -dotProduct(cam_up, self.transform.position), dotProduct(cam_forward, self.transform.position), 1.0 },
         };
     }
 
@@ -64,7 +63,7 @@ pub const Camera = struct {
     pub fn update(self: *Camera) void {
         const smooth_factor = 0.1;
         self.distance += (self.target_distance - self.distance) * smooth_factor;
-        self.position = self.computePosition();
+        self.transform.position = self.computePosition();
     }
 
     pub fn zoom(self: *Camera, delta: f32) void {
@@ -72,22 +71,22 @@ pub const Camera = struct {
         if (self.target_distance < 0.1) self.target_distance = 0.1;
         if (self.target_distance > 10.0) self.target_distance = 10.0;
         self.distance = self.target_distance;
-        self.position = self.computePosition();
+        self.transform.position = self.computePosition();
     }
 
     pub fn pan(self: *Camera, delta_x: f32, delta_y: f32) void {
         const pan_speed = 0.001 * self.distance;
 
-        const cam_right = self.rotation.rotateVector(.{ 1.0, 0.0, 0.0 });
-        const cam_up = self.rotation.rotateVector(.{ 0.0, 1.0, 0.0 });
+        const cam_right = self.transform.rotation.rotateVector(.{ 1.0, 0.0, 0.0 });
+        const cam_up = self.transform.rotation.rotateVector(.{ 0.0, 1.0, 0.0 });
 
         const move_x = -delta_x * pan_speed * cam_right[0] + delta_y * pan_speed * cam_up[0];
         const move_y = -delta_x * pan_speed * cam_right[1] + delta_y * pan_speed * cam_up[1];
         const move_z = -delta_x * pan_speed * cam_right[2] + delta_y * pan_speed * cam_up[2];
 
-        self.position[0] += move_x;
-        self.position[1] += move_y;
-        self.position[2] += move_z;
+        self.transform.position[0] += move_x;
+        self.transform.position[1] += move_y;
+        self.transform.position[2] += move_z;
 
         self.target[0] += move_x;
         self.target[1] += move_y;
@@ -101,8 +100,8 @@ pub const Camera = struct {
         const dYaw = Quaternion.fromAxisAngle(.{ 0.0, 1.0, 0.0 }, delta_x * rotation_speed);
         const dPitch = Quaternion.fromAxisAngle(.{ 1.0, 0.0, 0.0 }, delta_y * rotation_speed);
 
-        self.rotation = Quaternion.multiply(dYaw, Quaternion.multiply(self.rotation, dPitch));
-        self.position = self.computePosition();
+        self.transform.rotation = Quaternion.multiply(dYaw, Quaternion.multiply(self.transform.rotation, dPitch));
+        self.transform.position = self.computePosition();
     }
 
     pub fn rotateSelf(self: *Camera, delta_x: f32, delta_y: f32) void {
@@ -112,12 +111,12 @@ pub const Camera = struct {
         const dPitch = Quaternion.fromAxisAngle(.{ 1.0, 0.0, 0.0 }, delta_y * rotation_speed);
 
         const combined = Quaternion.multiply(dYaw, dPitch);
-        const cam_forward = self.rotation.rotateVector(.{ 0.0, 0.0, -1.0 });
+        const cam_forward = self.transform.rotation.rotateVector(.{ 0.0, 0.0, -1.0 });
         const rotated_forward = combined.rotateVector(cam_forward);
 
-        self.target[0] = self.position[0] + rotated_forward[0] * self.distance;
-        self.target[1] = self.position[1] + rotated_forward[1] * self.distance;
-        self.target[2] = self.position[2] + rotated_forward[2] * self.distance;
+        self.target[0] = self.transform.position[0] + rotated_forward[0] * self.distance;
+        self.target[1] = self.transform.position[1] + rotated_forward[1] * self.distance;
+        self.target[2] = self.transform.position[2] + rotated_forward[2] * self.distance;
     }
 
     pub fn setAspectRatio(self: *Camera, width: u32, height: u32) void {
