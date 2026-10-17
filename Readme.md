@@ -13,14 +13,14 @@ ShadeFlow/
 │   │   ├── engine/
 │   │   │   ├── Engine.zig    # 引擎主体（相机/场景对象/主循环）
 │   │   │   ├── optional/     # 窗口与输入（windowkit 适配层）
-│   │   │   ├── platform/     # 平台相关小工具（宿主消息泵）
 │   │   │   ├── render/       # 渲染门面（Types.zig + Renderer.zig）
 │   │   │   │   └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux）
 │   │   │   ├── scene/        # 变换、对象、几何生成
 │   │   │   └── view/         # 相机与拾取
 │   │   ├── utils/            # 工具类 (Time.zig、数学库)
+│   │   ├── capi.zig          # Windows 专用 C-ABI 导出（WinUI 3 / Composition）
 │   │   ├── main.zig          # 独立运行入口
-│   │   └── root.zig          # C# 互操作接口
+│   │   └── root.zig          # 跨平台引擎入口（exe 与其它 Zig 使用方）
 │   ├── assets/shaders/       # HLSL 源码
 │   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）
 │   └── build.zig             # Zig 构建配置

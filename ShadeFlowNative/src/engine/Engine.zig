@@ -4,7 +4,6 @@ const Matrix = @import("../utils/math/Matrix.zig").Matrix;
 const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
 const Time = @import("../utils/Time.zig").Time;
 const Window = @import("optional/Window.zig").Window;
-const platform = @import("platform/mod.zig");
 const render_api = @import("render/Renderer.zig");
 const Renderer = render_api.Renderer;
 const RenderObject = @import("scene/Object.zig").RenderObject;
@@ -265,24 +264,15 @@ pub const Engine = struct {
     }
 
     pub fn run(self: *Engine) !void {
-        // 有 windowkit 窗口：交给它的阻塞事件循环 + vsync 帧节拍。
-        if (self.window) |window| {
-            try window.run(self);
-            return;
-        }
-        // 无窗口（外部驱动）的兜底轮询循环。
-        while (try self.update()) {
-            self.render();
-        }
+        // 阻塞式主循环只有 windowkit 窗口这一种驱动方式。Composition/DLL
+        // 模式没有 Window，由宿主逐帧调用 update()/render()。
+        const window = self.window orelse return error.NoWindow;
+        try window.run(self);
     }
 
     pub fn update(self: *Engine) !bool {
-        // 有 windowkit 窗口时它自己泵消息（plat.run()），这里不能再泵否则会
-        // 同帧重复派发；只有外部宿主（Composition/DLL 模式，没有 Window
-        // 实例）时才由引擎自己排空消息。
-        if (self.window == null) {
-            if (!platform.pumpMessages()) return false;
-        }
+        // 消息泵不在引擎里：有窗口时归 windowkit 的 plat.run()；无窗口的
+        // WinUI Composition 模式由 C-ABI 层（capi.zig）在每帧驱动前负责。
 
         // 处理 Win32 窗口的输入
         if (self.window) |window| {

@@ -37,10 +37,10 @@ src/engine/render/
 
 ## ABI / 两模式边界
 
-- `src/main.zig` = 独立窗口应用；`src/root.zig` = 给 WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式）。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
+- `src/main.zig` = 独立窗口应用；`src/root.zig` = 跨平台引擎类型出口；`src/capi.zig` = WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式），只作为 Windows DLL 的根模块。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
 - `ShadeFlow_GetSwapChain` 通过后端中立的 `Renderer.swapChainInteropHandle()` 返回 `?*anyopaque`（D3D11 是 `IDXGISwapChain1*`，非 Direct 后端返回 null）。
-- `src/root.zig` 的每个 `export fn` 必须和 `ShadeFlowUI/Natives/ShadeFlowNative.cs` 的 `[DllImport(..., CallingConvention.Cdecl)]` 一一对应。`GeometryParams` 是 `extern` 布局的 tagged union，C# 侧用 `[StructLayout(LayoutKind.Explicit)]` 手工对齐——两边任意一侧改字段都要同步。
-- `Engine.update` 只在 `self.window == null`（DLL/Composition 由 C# 驱动）时调 `platform.pumpMessages()`；有窗口时消息循环归 windowkit，再泵会重复派发。
+- `src/capi.zig` 的每个 `export fn` 必须和 `ShadeFlowUI/Natives/ShadeFlowNative.cs` 的 `[DllImport(..., CallingConvention.Cdecl)]` 一一对应。`GeometryParams` 是 `extern` 布局的 tagged union，C# 侧用 `[StructLayout(LayoutKind.Explicit)]` 手工对齐——两边任意一侧改字段都要同步。
+- `Engine.update` 不再泵消息：有窗口时归一化到 windowkit 的 `plat.run()`；无窗口的 WinUI Composition 模式由 `capi.zig` 在每帧 `ShadeFlow_RenderFrame` 里泵 Win32 消息。`ShadeFlow_*` 导出与 `win32` 只存在于 `capi.zig`（仅 Windows 构建），`Engine` 本身是纯跨平台的。
 - `Engine` 用 `allocator.create` 分配：销毁用 `engine.destroy()`，不要只 `deinit()`（会漏 Engine 结构体本身）。
 
 ## 窗口层（windowkit 适配）— 踩过的坑

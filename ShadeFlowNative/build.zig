@@ -17,8 +17,14 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const is_windows = target.result.os.tag == .windows;
 
-    // 共享的引擎模块。imports 按平台不同：Linux 分支不引入 win32。
-    const engine_mod = createEngineModule(b, target, optimize, is_windows);
+    const windowkit = b.dependency("windowkit", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("windowkit");
+    const win32 = b.dependency("win32", .{}).module("win32");
+
+    // 跨平台引擎模块（exe 用）。Linux 分支不引入 win32。
+    const engine_mod = createEngineModule(b, target, optimize, windowkit, win32, is_windows);
 
     // 构建 EXE（默认）
     const exe = b.addExecutable(.{
@@ -46,15 +52,24 @@ pub fn build(b: *std.Build) void {
     }
     run_step.dependOn(&run_cmd.step);
 
-    // dll 步骤：只有 Windows 有 WinUI 宿主，其他平台明确失败而不是假装成功。
+    // dll 步骤：C-ABI 导出在 capi.zig，只有 Windows 有 WinUI 宿主。
     const dll_step = b.step("dll", "Build DLL and copy to ShadeFlowUI (Windows only)");
     if (is_windows) {
         const dll_copy_path = "../../ShadeFlowUI/";
+        const capi_mod = b.createModule(.{
+            .root_source_file = b.path("src/capi.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "win32", .module = win32 },
+                .{ .name = "windowkit", .module = windowkit },
+            },
+        });
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
             .name = "ShadeFlowNative",
             .version = .{ .major = 1, .minor = 0, .patch = 0 },
-            .root_module = engine_mod,
+            .root_module = capi_mod,
         });
         b.installArtifact(lib);
 
@@ -93,16 +108,13 @@ fn createEngineModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    windowkit: *std.Build.Module,
+    win32: *std.Build.Module,
     with_win32: bool,
 ) *std.Build.Module {
-    const windowkit = b.dependency("windowkit", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("windowkit");
-
     const imports: []const std.Build.Module.Import = if (with_win32)
         &.{
-            .{ .name = "win32", .module = b.dependency("win32", .{}).module("win32") },
+            .{ .name = "win32", .module = win32 },
             .{ .name = "windowkit", .module = windowkit },
         }
     else
