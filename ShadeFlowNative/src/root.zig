@@ -1,12 +1,10 @@
 const std = @import("std");
-
-const win32 = @import("win32").everything;
-
-const Engine = @import("engine/Engine.zig").Engine;
-const Vertex = @import("engine/Engine.zig").Vertex;
-const Window = @import("engine/optional/Window.zig").Window;
-const Renderer = @import("engine/render/Renderer.zig").Renderer;
-const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;
+pub const win32 = @import("win32").everything;
+pub const Engine = @import("engine/Engine.zig").Engine;
+pub const Vertex = @import("engine/Engine.zig").Vertex;
+pub const Window = @import("engine/optional/Window.zig").Window;
+pub const Renderer = @import("engine/render/Renderer.zig").Renderer;
+pub const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;
 
 var gpa = std.heap.DebugAllocator(.{}){};
 var allocator = gpa.allocator();

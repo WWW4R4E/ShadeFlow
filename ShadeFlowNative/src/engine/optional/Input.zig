@@ -1,10 +1,15 @@
 const std = @import("std");
+const wkInput = @import("windowkit").input;
 
-const win32 = @import("win32").everything;
-
+/// 引擎侧输入状态：把 windowkit 的平台无关 `InputEvent` 收敛成"本帧可查询
+/// 的按住 / 位置状态"。
 pub const Input = struct {
-    keyboard_state: [256]bool,
-    mouse_state: [5]bool,
+    /// windowkit 的 `KeyTag` 是按 US ANSI 物理位置命名的纯枚举，没有对应的
+    /// 平台原始键码，直接用 `EnumSet` 按枚举值建位图，别再假设它是小整数。
+    const KeySet = std.enums.EnumSet(wkInput.KeyTag);
+    keys_down: KeySet,
+    modifiers: wkInput.Modifiers,
+    mouse_state: [3]bool,
     mouse_x: i32,
     mouse_y: i32,
     mouse_delta_x: i32,
@@ -12,9 +17,10 @@ pub const Input = struct {
     mouse_wheel: i32,
 
     pub fn init() Input {
-        return Input{
-            .keyboard_state = [_]bool{false} ** 256,
-            .mouse_state = [_]bool{false} ** 5,
+        return .{
+            .keys_down = KeySet.empty,
+            .modifiers = .{},
+            .mouse_state = @splat(false),
             .mouse_x = 0,
             .mouse_y = 0,
             .mouse_delta_x = 0,
@@ -23,33 +29,42 @@ pub const Input = struct {
         };
     }
 
-    pub fn update(self: *Input) void {
-        // 保存上一帧的鼠标位置
-        const prev_mouse_x = self.mouse_x;
-        const prev_mouse_y = self.mouse_y;
+    // =========================================================================
+    // 事件入口 —— 由 optional/Window.zig 的 translateEvent 调用
+    // =========================================================================
 
-        // 更新键盘状态
-        for (0..256) |i| {
-            const key_state = win32.GetAsyncKeyState(@intCast(i));
-            self.keyboard_state[i] = key_state < 0;
-        }
-
-        // 更新鼠标状态
-        var mouse_pos: win32.POINT = undefined;
-        _ = win32.GetCursorPos(&mouse_pos);
-        self.mouse_x = mouse_pos.x;
-        self.mouse_y = mouse_pos.y;
-
-        // 计算鼠标 delta 值
-        self.mouse_delta_x = self.mouse_x - prev_mouse_x;
-        self.mouse_delta_y = self.mouse_y - prev_mouse_y;
-
-        self.mouse_state[0] = win32.GetAsyncKeyState(@intFromEnum(win32.VK_LBUTTON)) < 0;
-        self.mouse_state[1] = win32.GetAsyncKeyState(@intFromEnum(win32.VK_RBUTTON)) < 0;
-        self.mouse_state[2] = win32.GetAsyncKeyState(@intFromEnum(win32.VK_MBUTTON)) < 0;
-        self.mouse_state[3] = win32.GetAsyncKeyState(@intFromEnum(win32.VK_XBUTTON1)) < 0;
-        self.mouse_state[4] = win32.GetAsyncKeyState(@intFromEnum(win32.VK_XBUTTON2)) < 0;
+    pub fn onKey(self: *Input, key: wkInput.KeyTag, down: bool, modifiers: wkInput.Modifiers) void {
+        self.modifiers = modifiers;
+        self.keys_down.setPresent(key, down);
     }
+
+    pub fn onMouseButton(self: *Input, button: wkInput.MouseButton, down: bool, modifiers: wkInput.Modifiers) void {
+        self.modifiers = modifiers;
+        self.mouse_state[@intFromEnum(button)] = down;
+    }
+
+    /// `x` / `y` 为引擎坐标系（客户区物理像素，见 `Window.toEnginePx`）。
+    pub fn onMouseMove(self: *Input, x: i32, y: i32, modifiers: wkInput.Modifiers) void {
+        self.modifiers = modifiers;
+        self.mouse_delta_x = x - self.mouse_x;
+        self.mouse_delta_y = y - self.mouse_y;
+        self.mouse_x = x;
+        self.mouse_y = y;
+    }
+
+    pub fn onScroll(self: *Input, delta_y: f64, modifiers: wkInput.Modifiers) void {
+        self.modifiers = modifiers;
+        // windowkit 滚轮是行为增量，引擎按 Win32 WHEEL_DELTA 处理。
+        self.mouse_wheel = @intFromFloat(@round(delta_y * 120.0));
+    }
+
+    pub fn onModifiersChanged(self: *Input, modifiers: wkInput.Modifiers) void {
+        self.modifiers = modifiers;
+    }
+
+    // =========================================================================
+    // 查询
+    // =========================================================================
 
     pub fn getMouseDelta(self: *Input) struct { x: i32, y: i32 } {
         return .{ .x = self.mouse_delta_x, .y = self.mouse_delta_y };
@@ -60,10 +75,6 @@ pub const Input = struct {
         self.mouse_delta_y = 0;
     }
 
-    pub fn setMouseWheel(self: *Input, delta: i32) void {
-        self.mouse_wheel = delta;
-    }
-
     pub fn getMouseWheel(self: *Input) i32 {
         return self.mouse_wheel;
     }
@@ -72,53 +83,39 @@ pub const Input = struct {
         self.mouse_wheel = 0;
     }
 
-    pub fn isKeyPressed(self: *Input, key_code: u8) bool {
-        return self.keyboard_state[key_code];
-    }
-
-    pub fn isKeyPressedFromEnum(self: *Input, key: win32.VIRTUAL_KEY) bool {
-        const key_code = @intFromEnum(key);
-        if (key_code < 0 or key_code >= 256) return false;
-        return self.keyboard_state[@intCast(key_code)];
-    }
-
-    pub fn isMouseButtonPressed(self: *Input, button_index: u32) bool {
-        if (button_index >= self.mouse_state.len) return false;
-        return self.mouse_state[button_index];
-    }
-
     pub fn getMousePosition(self: *Input) struct { x: i32, y: i32 } {
         return .{ .x = self.mouse_x, .y = self.mouse_y };
     }
 
-    pub fn isCtrlMouseWheel(self: *Input) bool {
-        return self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.mouse_wheel != 0;
+    pub fn isKeyDown(self: *const Input, key: wkInput.KeyTag) bool {
+        return self.keys_down.contains(key);
     }
 
-    pub fn getCtrlMouseWheelDelta(self: *Input) i32 {
-        if (self.isKeyPressedFromEnum(win32.VK_CONTROL)) {
-            return self.mouse_wheel;
-        }
-        return 0;
+    pub fn isMouseButtonDown(self: *const Input, button: wkInput.MouseButton) bool {
+        return self.mouse_state[@intFromEnum(button)];
     }
 
-    // 检查是否为缩放输入（Ctrl + 鼠标滚轮）
+    // =========================================================================
+    // 相机操作判定
+    // =========================================================================
+
+    /// 缩放：Ctrl + 滚轮。
     pub fn isZoomInput(self: *Input) bool {
-        return self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.mouse_wheel != 0;
+        return self.modifiers.ctrl and self.mouse_wheel != 0;
     }
 
-    // 检查是否为平移输入（Ctrl + 鼠标中键）
+    /// 平移：Ctrl + 中键。
     pub fn isPanInput(self: *Input) bool {
-        return self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
+        return self.modifiers.ctrl and self.isMouseButtonDown(.middle);
     }
 
-    // 检查是否为轨道旋转输入（鼠标中键，不按Alt和Ctrl）
+    /// 绕中心公转：中键，且不按 Alt / Ctrl。
     pub fn isOrbitInput(self: *Input) bool {
-        return !self.isKeyPressedFromEnum(win32.VK_MENU) and !self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
+        return !self.modifiers.alt and !self.modifiers.ctrl and self.isMouseButtonDown(.middle);
     }
 
-    // 检查是否为自转输入（Alt + 鼠标中键）
+    /// 自转：Alt + 中键（不按 Ctrl）。
     pub fn isSelfRotateInput(self: *Input) bool {
-        return self.isKeyPressedFromEnum(win32.VK_MENU) and !self.isKeyPressedFromEnum(win32.VK_CONTROL) and self.isMouseButtonPressed(2);
+        return self.modifiers.alt and !self.modifiers.ctrl and self.isMouseButtonDown(.middle);
     }
 };

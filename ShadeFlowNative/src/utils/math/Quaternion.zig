@@ -5,7 +5,7 @@ pub const Quaternion = struct {
     y: f32 = 0.0,
     z: f32 = 0.0,
     w: f32 = 1.0,
-
+    // 单位矩阵 (Identity Matrix)
     pub const identity = Quaternion{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
 
     pub fn fromAxisAngle(axis: [3]f32, angle: f32) Quaternion {

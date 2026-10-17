@@ -1,316 +1,192 @@
+//! 窗口适配层 —— 包装 windowkit（https://github.com/WWW4R4E/windowkit）。
+//!
+//! windowkit 是 GLFW 式纯窗口库：窗口创建/销毁、事件循环、输入/IME/DPI、
+//! 文件拖放、vsync 帧节拍，渲染归接入方（本引擎的 D3D11 Renderer）。
+//! 本模块把 windowkit 的 `Platform` / `PlatformWindow` 适配成引擎内部
+//! 的 `Window` 接口：输入事件翻译进 `Input` 状态结构，尺寸变化通过
+//! `size_changed` 标志同步，事件循环和帧节拍交给 `plat.run()`。
+//!
+//! Windows 后端契约（见 windowkit README）：
+//! - 消息泵、输入回调、渲染回调全部串行在 UI 线程，无需加锁；
+//! - 渲染回调每 `DwmFlush` 节拍派发一次（DWM 禁用退化为 16ms 睡眠），
+//!   每次派发后需要 `requestRender()` 重新预约下一帧（连续渲染模式）。
+
 const std = @import("std");
 const win32 = @import("win32").everything;
-const L = win32.L;
+
+const windowkit = @import("windowkit");
+const wkInput = windowkit.input;
 
 const Input = @import("Input.zig").Input;
+const Engine = @import("../Engine.zig").Engine;
 
 pub const Window = struct {
-    hwnd: win32.HWND,
-    hdc: win32.HDC,
     allocator: std.mem.Allocator,
-    running: bool,
-    size_changed: bool,
+    plat: windowkit.Platform = undefined,
+    win: ?*windowkit.PlatformWindow = null,
+    hwnd: ?win32.HWND = null,
+    running: bool = true,
+    size_changed: bool = false,
     input: Input,
-    // 自定义拖拽/缩放状态（替代 DefWindowProc 模态循环）
-    is_dragging: bool = false,
-    is_resizing: bool = false,
-    drag_offset_x: i32 = 0,
-    drag_offset_y: i32 = 0,
-    resize_edge: u32 = 0,
-    resize_rect: win32.RECT = undefined,
-
-    const MIN_WIDTH: i32 = 320;
-    const MIN_HEIGHT: i32 = 240;
-    const CLASS_NAME = L("ZigDx11WindowClass");
-
-    fn resizeWindow(self: *Window, hwnd: win32.HWND, sx: i32, sy: i32) void {
-        var r = self.resize_rect;
-
-        switch (self.resize_edge) {
-            win32.HTLEFT => r.left = sx,
-            win32.HTRIGHT => r.right = sx,
-            win32.HTTOP => r.top = sy,
-            win32.HTBOTTOM => r.bottom = sy,
-            win32.HTTOPLEFT => {
-                r.left = sx;
-                r.top = sy;
-            },
-            win32.HTTOPRIGHT => {
-                r.right = sx;
-                r.top = sy;
-            },
-            win32.HTBOTTOMLEFT => {
-                r.left = sx;
-                r.bottom = sy;
-            },
-            win32.HTBOTTOMRIGHT => {
-                r.right = sx;
-                r.bottom = sy;
-            },
-            else => return,
-        }
-
-        if (r.right - r.left < MIN_WIDTH) {
-            if (r.left != self.resize_rect.left) r.left = r.right - MIN_WIDTH else r.right = r.left + MIN_WIDTH;
-        }
-        if (r.bottom - r.top < MIN_HEIGHT) {
-            if (r.top != self.resize_rect.top) r.top = r.bottom - MIN_HEIGHT else r.bottom = r.top + MIN_HEIGHT;
-        }
-
-        _ = win32.SetWindowPos(hwnd, null, r.left, r.top, r.right - r.left, r.bottom - r.top, .{
-            .NOZORDER = 1,
-            .NOACTIVATE = 1,
-        });
-        self.size_changed = true;
-    }
-
-    fn wndProc(
-        hwnd: win32.HWND,
-        uMsg: u32,
-        wParam: win32.WPARAM,
-        lParam: win32.LPARAM,
-    ) callconv(.winapi) win32.LRESULT {
-        const window_ptr_value = win32.GetWindowLongPtrW(hwnd, win32.GWLP_USERDATA);
-        if (window_ptr_value != 0) {
-            const window_ptr: *Window = @ptrFromInt(@as(usize, @bitCast(window_ptr_value)));
-
-            switch (uMsg) {
-                win32.WM_DESTROY => {
-                    win32.PostQuitMessage(0);
-                    return 0;
-                },
-                win32.WM_NCHITTEST => {
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_NCLBUTTONDOWN => {
-                    const hit_test = @as(u16, @truncate(@as(u32, @intCast(wParam))));
-                    const lParam_usize = @as(usize, @bitCast(lParam));
-                    const screen_x = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize)))));
-                    const screen_y = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16)))));
-
-                    switch (hit_test) {
-                        win32.HTCAPTION => {
-                            var rect: win32.RECT = undefined;
-                            _ = win32.GetWindowRect(hwnd, &rect);
-                            window_ptr.drag_offset_x = screen_x - rect.left;
-                            window_ptr.drag_offset_y = screen_y - rect.top;
-                            window_ptr.is_dragging = true;
-                            _ = win32.SetCapture(hwnd);
-                            return 0;
-                        },
-                        win32.HTLEFT, win32.HTRIGHT, win32.HTTOP, win32.HTBOTTOM, win32.HTTOPLEFT, win32.HTTOPRIGHT, win32.HTBOTTOMLEFT, win32.HTBOTTOMRIGHT => {
-                            window_ptr.resize_edge = hit_test;
-                            _ = win32.GetWindowRect(hwnd, &window_ptr.resize_rect);
-                            window_ptr.is_resizing = true;
-                            _ = win32.SetCapture(hwnd);
-                            return 0;
-                        },
-                        else => return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam),
-                    }
-                },
-                win32.WM_MOUSEMOVE => {
-                    const lParam_usize = @as(usize, @bitCast(lParam));
-                    const cx = @as(i16, @bitCast(@as(u16, @truncate(lParam_usize))));
-                    const cy = @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16))));
-
-                    window_ptr.input.mouse_delta_x = @as(i32, cx) - window_ptr.input.mouse_x;
-                    window_ptr.input.mouse_delta_y = @as(i32, cy) - window_ptr.input.mouse_y;
-                    window_ptr.input.mouse_x = @as(i32, cx);
-                    window_ptr.input.mouse_y = @as(i32, cy);
-
-                    if (window_ptr.is_dragging) {
-                        var pt: win32.POINT = .{ .x = @intCast(cx), .y = @intCast(cy) };
-                        _ = win32.ClientToScreen(hwnd, &pt);
-                        _ = win32.SetWindowPos(hwnd, null, pt.x - window_ptr.drag_offset_x, pt.y - window_ptr.drag_offset_y, 0, 0, .{
-                            .NOSIZE = 1,
-                            .NOZORDER = 1,
-                            .NOACTIVATE = 1,
-                        });
-                        return 0;
-                    }
-
-                    if (window_ptr.is_resizing) {
-                        var pt: win32.POINT = .{ .x = @intCast(cx), .y = @intCast(cy) };
-                        _ = win32.ClientToScreen(hwnd, &pt);
-                        window_ptr.resizeWindow(hwnd, pt.x, pt.y);
-                        return 0;
-                    }
-
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                // win32.WM_NCMOUSEMOVE => {
-                //     const lParam_usize = @as(usize, @bitCast(lParam));
-                //     const sx = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize)))));
-                //     const sy = @as(i32, @as(i16, @bitCast(@as(u16, @truncate(lParam_usize >> 16)))));
-
-                //     if (window_ptr.is_dragging) {
-                //         _ = win32.SetWindowPos(hwnd, null, sx - window_ptr.drag_offset_x, sy - window_ptr.drag_offset_y, 0, 0, .{
-                //             .NOZORDER = 1,
-                //             .NOACTIVATE = 1,
-                //         });
-                //         return 0;
-                //     }
-
-                //     if (window_ptr.is_resizing) {
-                //         window_ptr.resizeWindow(hwnd, sx, sy);
-                //         return 0;
-                //     }
-                //     return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                // },
-                win32.WM_LBUTTONUP => {
-                    if (window_ptr.is_dragging or window_ptr.is_resizing) {
-                        window_ptr.is_dragging = false;
-                        window_ptr.is_resizing = false;
-                        _ = win32.ReleaseCapture();
-                        return 0;
-                    }
-                    window_ptr.input.mouse_state[0] = false;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_LBUTTONDOWN => {
-                    window_ptr.input.mouse_state[0] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_RBUTTONDOWN => {
-                    window_ptr.input.mouse_state[1] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_RBUTTONUP => {
-                    window_ptr.input.mouse_state[1] = false;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_MBUTTONDOWN => {
-                    window_ptr.input.mouse_state[2] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_MBUTTONUP => {
-                    window_ptr.input.mouse_state[2] = false;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_XBUTTONDOWN => {
-                    const button = (@as(u16, @truncate(wParam >> 16)) & 0x000F);
-                    if (button == 1) window_ptr.input.mouse_state[3] = true else if (button == 2) window_ptr.input.mouse_state[4] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_XBUTTONUP => {
-                    const button = (@as(u16, @truncate(wParam >> 16)) & 0x000F);
-                    if (button == 1) window_ptr.input.mouse_state[3] = false else if (button == 2) window_ptr.input.mouse_state[4] = false;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_MOUSEWHEEL => {
-                    const delta = @as(i16, @bitCast(@as(u16, @truncate(wParam >> 16))));
-                    window_ptr.input.mouse_wheel = delta;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_KEYDOWN => {
-                    window_ptr.input.keyboard_state[@as(u8, @truncate(wParam))] = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_KEYUP => {
-                    window_ptr.input.keyboard_state[@as(u8, @truncate(wParam))] = false;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                win32.WM_SIZE => {
-                    window_ptr.size_changed = true;
-                    return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam);
-                },
-                else => return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam),
-            }
-        } else {
-            switch (uMsg) {
-                win32.WM_DESTROY => {
-                    win32.PostQuitMessage(0);
-                    return 0;
-                },
-                else => return win32.DefWindowProcW(hwnd, uMsg, wParam, lParam),
-            }
-        }
-    }
+    engine: ?*Engine = null,
 
     pub fn init(allocator: std.mem.Allocator) !*Window {
-        const wc = win32.WNDCLASSW{
-            .style = .{},
-            .lpfnWndProc = wndProc,
-            .cbClsExtra = 0,
-            .cbWndExtra = 0,
-            .hInstance = win32.GetModuleHandleW(null),
-            .hIcon = null,
-            .hCursor = win32.LoadCursorW(null, win32.IDC_ARROW),
-            .hbrBackground = win32.GetStockObject(win32.WHITE_BRUSH),
-            .lpszMenuName = null,
-            .lpszClassName = CLASS_NAME,
-        };
+        const self = try allocator.create(Window);
+        errdefer allocator.destroy(self);
 
-        if (win32.RegisterClassW(&wc) == 0)
-            return error.FailedToRegisterClass;
-
-        const hwnd = win32.CreateWindowExW(
-            .{},
-            CLASS_NAME,
-            L("ZigDx11 Engine"),
-            win32.WS_OVERLAPPEDWINDOW,
-            win32.CW_USEDEFAULT,
-            win32.CW_USEDEFAULT,
-            1280,
-            720,
-            null,
-            null,
-            wc.hInstance,
-            null,
-        ) orelse return error.FailedToCreateWindow;
-
-        const hdc = win32.GetDC(hwnd) orelse return error.FailedToGetDeviceContext;
-
-        const window_ptr = try allocator.create(Window);
-
-        window_ptr.* = Window{
+        self.* = .{
             .allocator = allocator,
-            .hwnd = hwnd,
-            .hdc = hdc,
-            .running = true,
-            .size_changed = false,
             .input = Input.init(),
         };
 
-        _ = win32.SetWindowLongPtrW(hwnd, win32.GWLP_USERDATA, @as(isize, @intCast(@intFromPtr(window_ptr))));
+        try self.plat.initInPlace(allocator);
+        errdefer self.plat.deinit();
 
-        return window_ptr;
+        const options: windowkit.WindowOptions = .{
+            .title = "ZigDx11 Engine",
+            .width = 1600,
+            .height = 900,
+            .centered = true,
+            .file_drop = true,
+            .min_size = .{ .width = 320, .height = 240 },
+        };
+
+        self.win = try windowkit.PlatformWindow.init(allocator, &self.plat, &options);
+        errdefer self.win.?.deinit();
+
+        // 原生句柄：交给引擎建 D3D11 surface / swapchain。
+        switch (self.win.?.nativeHandles()) {
+            .win32 => |w| self.hwnd = @ptrCast(@alignCast(w.hwnd)),
+            else => return error.UnsupportedBackend, // 本引擎只有 Direct/Windows 路径
+        }
+
+        // 回调：输入 → Input 状态，关闭 → 退出循环，resize → size_changed。
+        self.win.?.setUserData(self);
+        self.win.?.setInputCallback(inputTrampoline);
+        self.win.?.setCloseCallback(closeTrampoline);
+        self.win.?.setResizeCallback(resizeTrampoline);
+
+        // 补一次 resize 信号：windowkit init 内部已 ShowWindow 并触发过
+        // WM_SIZE，但那时 resize 回调还没挂上；引擎第一次 update 要靠
+        // size_changed 走 handleResize → resizeRenderer，把 Engine.viewport
+        // 建起来（Picker 点击选取依赖它），否则点击永远选不中。
+        self.size_changed = true;
+
+        return self;
     }
 
     pub fn deinit(self: *Window) void {
-        _ = win32.ReleaseDC(self.hwnd, self.hdc);
-        _ = win32.DestroyWindow(self.hwnd);
+        // 契约：先销毁渲染资源（swapchain 已在 Engine.deinit 销毁），再关窗口。
+        if (self.win) |win| win.deinit();
+        self.win = null;
+        self.plat.deinit();
         self.allocator.destroy(self);
     }
 
+    /// windowkit 的 PlatformWindow（给主循环设置渲染回调等）。
+    pub fn platform_window(self: *Window) ?*windowkit.PlatformWindow {
+        return self.win;
+    }
+
+    /// 客户区物理像素尺寸（swapchain 用它；PerMonitorV2 下是真实物理值）。
     pub fn getClientSize(self: *Window) struct { width: u32, height: u32 } {
-        var client_rect: win32.RECT = undefined;
-        _ = win32.GetClientRect(self.hwnd, &client_rect);
-        return .{
-            .width = @intCast(client_rect.right - client_rect.left),
-            .height = @intCast(client_rect.bottom - client_rect.top),
-        };
+        const win = self.win orelse return .{ .width = 0, .height = 0 };
+        const px = win.framebufferSize();
+        return .{ .width = px.width_px, .height = px.height_px };
     }
 
+    /// windowkit 平台层已按 PerMonitorV2 初始化进程，且窗口创建时即展示，
+    /// 无需额外操作。
     pub fn show(self: *Window) void {
-        _ = win32.ShowWindow(self.hwnd, win32.SW_SHOW);
-        _ = win32.UpdateWindow(self.hwnd);
+        _ = self;
     }
 
-    pub fn processMessages(self: *Window) bool {
-        var msg: win32.MSG = undefined;
-        while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
-            if (msg.message == win32.WM_QUIT) {
-                self.running = false;
-                return false;
-            }
-            _ = win32.TranslateMessage(&msg);
-            _ = win32.DispatchMessageW(&msg);
-        }
-        return self.running;
+    /// 阻塞事件循环：泵 Win32 消息，每个 DwmFlush 节拍回调一次 `engine.render`。
+    /// 在 `engine.update` 里的输入驱动也挂在这个回调链上。
+    pub fn run(self: *Window, engine: *Engine) !void {
+        const win = self.win orelse return error.WindowNotInitialized;
+        self.engine = engine;
+        win.setRenderCallback(renderTrampoline);
+        self.plat.run();
     }
 
     pub fn getInput(self: *Window) *Input {
         return &self.input;
+    }
+
+    pub fn isRunning(self: *const Window) bool {
+        return self.running;
+    }
+
+    // =========================================================================
+    // 回调
+    // =========================================================================
+
+    fn renderTrampoline(win: *windowkit.PlatformWindow) void {
+        const self = win.getUserData(Window) orelse return;
+        const engine = self.engine orelse return;
+        const keep_running = engine.update() catch blk: {
+            std.debug.print("engine update 失败\n", .{});
+            break :blk true;
+        };
+        if (!keep_running) {
+            win.getPlatform().quit();
+            return;
+        }
+        engine.render();
+        // 连续渲染：预约下一帧节拍（需要 needs_render 重新置位）。
+        win.requestRender();
+    }
+
+    fn closeTrampoline(win: *windowkit.PlatformWindow) bool {
+        _ = win;
+        return true; // 放行关闭；事件循环因窗口全关而结束。
+    }
+
+    fn resizeTrampoline(win: *windowkit.PlatformWindow, width: f64, height: f64) void {
+        const self = win.getUserData(Window) orelse return;
+        _ = width;
+        _ = height;
+        self.size_changed = true;
+    }
+
+    fn inputTrampoline(win: *windowkit.PlatformWindow, event: wkInput.InputEvent) bool {
+        const self = win.getUserData(Window) orelse return false;
+        return self.translateEvent(event);
+    }
+
+    // =========================================================================
+    // 事件翻译：windowkit InputEvent → 引擎 Input 状态
+    // =========================================================================
+
+    /// 鼠标坐标：引擎的选取（Picker）用物理像素做视口对比。
+    ///
+    /// 后端差异（经验证）：
+    /// - Windows：windowkit 直发 `WM_MOUSEMOVE` 的 lParam 客户区坐标，
+    ///   PerMonitorV2 下该值就是**物理像素**，不要再乘 scale；
+    /// - 若将来接 macOS/Linux（坐标为逻辑像素），在这里乘 `getScaleFactor()`。
+    fn toEnginePx(self: *Window, x: f64, y: f64) struct { x: i32, y: i32 } {
+        _ = self;
+        return .{
+            .x = @intFromFloat(@round(x)),
+            .y = @intFromFloat(@round(y)),
+        };
+    }
+
+    fn translateEvent(self: *Window, event: wkInput.InputEvent) bool {
+        switch (event) {
+            .mouse_moved, .mouse_dragged => |m| {
+                const pos = self.toEnginePx(m.position.x, m.position.y);
+                self.input.onMouseMove(pos.x, pos.y, m.modifiers);
+            },
+            .mouse_down => |m| self.input.onMouseButton(m.button, true, m.modifiers),
+            .mouse_up => |m| self.input.onMouseButton(m.button, false, m.modifiers),
+            .scroll => |s| self.input.onScroll(s.delta.y, s.modifiers),
+            .key_down => |k| self.input.onKey(k.key, true, k.modifiers),
+            .key_up => |k| self.input.onKey(k.key, false, k.modifiers),
+            .modifiers_changed => |mods| self.input.onModifiersChanged(mods),
+            else => {},
+        }
+        return false;
     }
 };

@@ -14,9 +14,9 @@ pub const Transform = struct {
         const rot_matrix = self.rotation.toMatrix();
         const scale_matrix = Matrix.createScaleMatrix(self.scale[0], self.scale[1], self.scale[2]);
 
-        // 组合变换矩阵：缩放 -> 旋转 -> 平移
-        var world_matrix = Matrix.matrixMultiply(scale_matrix, rot_matrix);
-        world_matrix = Matrix.matrixMultiply(world_matrix, translate_matrix);
+        // 组合变换矩阵： 平移 -> 旋转 -> 缩放(RTS)
+        var world_matrix = Matrix.matrixMultiply(translate_matrix, rot_matrix);
+        world_matrix = Matrix.matrixMultiply(world_matrix, scale_matrix);
         return world_matrix;
     }
 

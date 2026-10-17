@@ -2,11 +2,11 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
-const Buffer = @import("d3d11/Buffer.zig").Buffer;
-const Device = @import("d3d11/Device.zig").Device;
-const Shader = @import("d3d11/Shader.zig").Shader;
-const SwapChain = @import("d3d11/SwapChain.zig").SwapChain;
-const Texture = @import("d3d11/Texture.zig").Texture;
+const Buffer = @import("Direct/Buffer.zig").Buffer;
+const Device = @import("Direct/Device.zig").Device;
+const Shader = @import("Direct/Shader.zig").Shader;
+const SwapChain = @import("Direct/SwapChain.zig").SwapChain;
+const Texture = @import("Direct/Texture.zig").Texture;
 
 pub const Renderer = struct {
     device: Device,
@@ -74,12 +74,12 @@ pub const Renderer = struct {
         // 1. 只有深度值小于深度缓冲区中现有值的像素才会被渲染
         // 2. 通过测试的像素会更新深度缓冲区
         // 3. 实现了正确的遮挡关系，近处物体遮挡远处物体
-        // try renderer.setDepthStencilState(true, true, .less);
+        try renderer.setDepthStencilState(true, true, .less);
         // 设置实体填充模式，不剔除任何面（双面渲染），这对于调试很有帮助
         // 这意味着：
         // 1. 实体将以实心模式渲染（而不是线框）
         // 2. 不剔除任何面，无论是正面还是背面
-        // try renderer.setRasterizerState(.solid, .none);
+        try renderer.setRasterizerState(.solid, .none);
         return renderer;
     }
 
@@ -153,7 +153,7 @@ pub const Renderer = struct {
 
     pub fn beginFrame(self: *Renderer, clear_color: [4]f32) void {
         self.device.device_context.ClearRenderTargetView(self.render_target_view, @ptrCast(&clear_color));
-        self.device.device_context.ClearDepthStencilView(self.depth_texture.getDepthStencilView(), @intFromEnum(win32.D3D11_CLEAR_DEPTH) | @intFromEnum(win32.D3D11_CLEAR_STENCIL), 1.0, 0);
+        self.device.device_context.ClearDepthStencilView(self.depth_texture.getDepthStencilView(), @backingInt(win32.D3D11_CLEAR_DEPTH) | @backingInt(win32.D3D11_CLEAR_STENCIL), 1.0, 0);
         self.device.device_context.OMSetRenderTargets(1, @ptrCast(&self.render_target_view), self.depth_texture.getDepthStencilView());
         // 渲染普通对象
     }

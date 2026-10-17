@@ -51,6 +51,8 @@ pub const Camera = struct {
         const x_scale = y_scale / self.aspect_ratio;
         const z_scale = -(self.far_plane + self.near_plane) / (self.far_plane - self.near_plane);
         const z_offset = (-2.0 * self.far_plane * self.near_plane) / (self.far_plane - self.near_plane);
+        // const z_scale = self.far_plane / (self.near_plane - self.far_plane);
+        // const z_offset = (self.near_plane * self.far_plane) / (self.near_plane - self.far_plane);
 
         return [4][4]f32{
             [4]f32{ x_scale, 0.0, 0.0, 0.0 },
@@ -59,7 +61,6 @@ pub const Camera = struct {
             [4]f32{ 0.0, 0.0, z_offset, 0.0 },
         };
     }
-
     pub fn update(self: *Camera) void {
         const smooth_factor = 0.1;
         self.distance += (self.target_distance - self.distance) * smooth_factor;

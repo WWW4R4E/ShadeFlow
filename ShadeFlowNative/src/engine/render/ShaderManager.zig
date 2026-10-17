@@ -1,8 +1,8 @@
 const std = @import("std");
 const win32 = @import("win32").everything;
 
-const Shader = @import("d3d11/Shader.zig").Shader;
-const Device = @import("d3d11/Device.zig").Device;
+const Shader = @import("Direct/Shader.zig").Shader;
+const Device = @import("Direct/Device.zig").Device;
 
 pub const ShaderManager = struct {
     allocator: std.mem.Allocator,

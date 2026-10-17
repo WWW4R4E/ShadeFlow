@@ -5,12 +5,11 @@ const win32 = @import("win32").everything;
 const Matrix = @import("../utils/math/Matrix.zig").Matrix;
 const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
 const Time = @import("../utils/Time.zig").Time;
-const Input = @import("optional/Input.zig").Input;
 const Window = @import("optional/Window.zig").Window;
-const Buffer = @import("render/d3d11/Buffer.zig").Buffer;
-const Device = @import("render/d3d11/Device.zig").Device;
-const Shader = @import("render/d3d11/Shader.zig").Shader;
-const CommonInputLayouts = @import("render/d3d11/Shader.zig").CommonInputLayouts;
+const Buffer = @import("render/Direct/Buffer.zig").Buffer;
+const Device = @import("render/Direct/Device.zig").Device;
+const Shader = @import("render/Direct/Shader.zig").Shader;
+const CommonInputLayouts = @import("render/Direct/Shader.zig").CommonInputLayouts;
 const Renderer = @import("render/Renderer.zig").Renderer;
 const ShaderManager = @import("render/ShaderManager.zig").ShaderManager;
 const RenderObject = @import("scene/Object.zig").RenderObject;
@@ -389,21 +388,31 @@ pub const Engine = struct {
     }
 
     pub fn run(self: *Engine) !void {
+        // 有 windowkit 窗口：交给它的阻塞事件循环 + vsync 帧节拍。
+        if (self.window) |window| {
+            try window.run(self);
+            return;
+        }
+        // 无窗口（外部驱动）的兜底轮询循环。
         while (try self.update()) {
             self.render();
         }
     }
 
     pub fn update(self: *Engine) !bool {
-        // 处理 Windows 消息
-        var msg: win32.MSG = undefined;
-        while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
-            _ = win32.TranslateMessage(&msg);
-            _ = win32.DispatchMessageW(&msg);
+        // 有 windowkit 窗口时它自己泵消息（plat.run()），这里不能再泵否则会
+        // 同帧重复派发；只有外部宿主（Composition/DLL 模式，没有 Window
+        // 实例）时才由引擎自己排空消息。
+        if (self.window == null) {
+            var msg: win32.MSG = undefined;
+            while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
+                _ = win32.TranslateMessage(&msg);
+                _ = win32.DispatchMessageW(&msg);
 
-            // 如果收到 WM_QUIT 消息，则退出主循环
-            if (msg.message == win32.WM_QUIT) {
-                return false;
+                // 如果收到 WM_QUIT 消息，则退出主循环
+                if (msg.message == win32.WM_QUIT) {
+                    return false;
+                }
             }
         }
 
@@ -455,7 +464,7 @@ pub const Engine = struct {
             }
 
             // 处理鼠标左键点击选取物体
-            if (input.isMouseButtonPressed(0)) {
+            if (input.isMouseButtonDown(.left)) {
                 // 检查视口是否已设置
                 if (self.viewport) |viewport| {
                     // 获取鼠标位置
