@@ -1,5 +1,4 @@
 const std = @import("std");
-pub const win32 = @import("win32").everything;
 pub const Engine = @import("engine/Engine.zig").Engine;
 pub const Vertex = @import("engine/Engine.zig").Vertex;
 pub const Window = @import("engine/optional/Window.zig").Window;
@@ -62,7 +61,7 @@ export fn ShadeFlow_CreateEngineForComposition(
     // 如果引擎已经初始化，释放旧实例
     if (engine_instance) |engine| {
         log(LogLevel.Info, "[ShadeFlow_CreateEngineForComposition] Releasing existing engine instance\n", .{});
-        engine.deinit();
+        engine.destroy();
         engine_instance = null;
     }
 
@@ -80,8 +79,10 @@ export fn ShadeFlow_CreateEngineForComposition(
 export fn ShadeFlow_GetSwapChain() ?*anyopaque {
     if (engine_instance) |engine| {
         if (engine.renderer) |*renderer| {
-            const swap_chain_ptr = @as(*anyopaque, @ptrCast(renderer.getSwapChain().handle));
-            log(LogLevel.Debug, "[ShadeFlow_GetSwapChain] Swap chain pointer: {*}\n", .{swap_chain_ptr});
+            const swap_chain_ptr = renderer.swapChainInteropHandle();
+            if (swap_chain_ptr) |ptr| {
+                log(LogLevel.Debug, "[ShadeFlow_GetSwapChain] Swap chain pointer: {*}\n", .{ptr});
+            }
             return swap_chain_ptr;
         }
     }
@@ -122,7 +123,7 @@ export fn ShadeFlow_Cleanup() void {
 
     if (engine_instance) |engine| {
         log(LogLevel.Info, "[ShadeFlow_Cleanup] Releasing engine instance\n", .{});
-        engine.deinit();
+        engine.destroy();
         engine_instance = null;
     }
 
@@ -149,11 +150,7 @@ export fn ShadeFlow_ClearRenderObjects() bool {
     log(LogLevel.Debug, "[ShadeFlow_ClearRenderObjects] Clearing all render objects\n", .{});
 
     if (engine_instance) |engine| {
-        engine.render_objects.deinit(allocator);
-        engine.render_objects = .empty;
-
-        engine.indexed_render_objects.deinit(allocator);
-        engine.indexed_render_objects = .empty;
+        engine.clearRenderObjects();
 
         log(LogLevel.Info, "[ShadeFlow_ClearRenderObjects] All render objects cleared\n", .{});
         return true;
@@ -264,7 +261,7 @@ export fn ShadeFlow_AddGeometryObject(
     pixel_shader_path: [*:0]const u8,
 ) bool {
     if (engine_instance) |engine| {
-        const geom_type = @as(GeometryGenerators.GeometryType, @enumFromInt(geometry_type));
+        const geom_type = @as(GeometryGenerators.GeometryType, @fromBackingInt(@intCast(geometry_type)));
         engine.addGeometryObject(geom_type, vertex_shader_path, pixel_shader_path);
         return true;
     }
@@ -289,7 +286,7 @@ export fn ShadeFlow_AddGeometryObjectWithParams(
 ) bool {
     if (engine_instance) |engine| {
         const type_ptr: *const c_int = @ptrCast(@alignCast(c_params));
-        const geom_type = @as(GeometryGenerators.GeometryType, @enumFromInt(type_ptr.*));
+        const geom_type = @as(GeometryGenerators.GeometryType, @fromBackingInt(@intCast(type_ptr.*)));
 
         const params = switch (geom_type) {
             .Cube, .Quad, .Triangle => blk: {

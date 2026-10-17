@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const win32 = @import("win32").everything;
-
+/// 帧计时器。时间单位统一为纳秒，跨平台走 `std.time.nanoTimestamp`
+/// （Windows 上内部就是 QueryPerformanceCounter），不再直接依赖 win32。
 pub const Time = struct {
     start_time: i64,
     last_frame_time: i64,
@@ -12,11 +12,10 @@ pub const Time = struct {
     fps_update_time: f64,
 
     pub fn init() Time {
-        var counter: win32.LARGE_INTEGER = undefined;
-        _ = win32.QueryPerformanceCounter(&counter);
+        const now = nanoTimestamp();
         return Time{
-            .start_time = counter.QuadPart,
-            .last_frame_time = counter.QuadPart,
+            .start_time = now,
+            .last_frame_time = now,
             .delta_time = 0.0,
             .total_time = 0.0,
             .frame_count = 0,
@@ -26,17 +25,15 @@ pub const Time = struct {
     }
 
     pub fn update(self: *Time) void {
-        var current_time: win32.LARGE_INTEGER = undefined;
-        _ = win32.QueryPerformanceCounter(&current_time);
-        var frequency: win32.LARGE_INTEGER = undefined;
-        _ = win32.QueryPerformanceFrequency(&frequency);
+        const now = nanoTimestamp();
+        const ns_per_second: f64 = std.time.ns_per_s;
 
-        // 计算delta time
-        self.delta_time = @as(f64, @floatFromInt(current_time.QuadPart - self.last_frame_time)) / @as(f64, @floatFromInt(frequency.QuadPart));
-        self.last_frame_time = current_time.QuadPart;
+        // 计算 delta time
+        self.delta_time = @as(f64, @floatFromInt(now - self.last_frame_time)) / ns_per_second;
+        self.last_frame_time = now;
 
         // 更新总时间
-        self.total_time = @as(f64, @floatFromInt(current_time.QuadPart - self.start_time)) / @as(f64, @floatFromInt(frequency.QuadPart));
+        self.total_time = @as(f64, @floatFromInt(now - self.start_time)) / ns_per_second;
 
         // 更新帧率计算
         self.frame_count += 1;
@@ -60,5 +57,10 @@ pub const Time = struct {
 
     pub fn getFPS(self: *Time) f64 {
         return self.fps;
+    }
+
+    fn nanoTimestamp() i64 {
+        const io = std.Io.Threaded.global_single_threaded.io();
+        return @intCast(std.Io.Clock.awake.now(io).nanoseconds);
     }
 };

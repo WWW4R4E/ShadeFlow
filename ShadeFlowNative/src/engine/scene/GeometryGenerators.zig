@@ -4,6 +4,13 @@ const Vertex = @import("../Engine.zig").Vertex;
 
 // 几何形状参数结构
 pub const GeometryGenerators = struct {
+    /// 生成结果。用具名类型而不是每处 `struct { ... }`，调用方才能把
+    /// `switch` 各分支统一到同一个类型。
+    pub const Geometry = struct {
+        vertices: []Vertex,
+        indices: []u16,
+    };
+
     // 立方体参数
     pub const CubeParams = struct {
         size: f32 = 1.0, // 立方体大小
@@ -74,7 +81,7 @@ pub const GeometryGenerators = struct {
     // 动态几何生成函数
 
     // 生成立方体
-    pub fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !Geometry {
         const half_size = params.size / 2.0;
 
         // 立方体有8个顶点
@@ -136,7 +143,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成球体
-    pub fn generateSphere(allocator: std.mem.Allocator, params: SphereParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateSphere(allocator: std.mem.Allocator, params: SphereParams) !Geometry {
         const radius = params.radius;
         const segments = params.segments;
 
@@ -191,7 +198,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成圆柱体
-    pub fn generateCylinder(allocator: std.mem.Allocator, params: CylinderParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCylinder(allocator: std.mem.Allocator, params: CylinderParams) !Geometry {
         const radius = params.radius;
         const height = params.height;
         const segments = params.segments;
@@ -269,7 +276,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成圆锥体
-    pub fn generateCone(allocator: std.mem.Allocator, params: ConeParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateCone(allocator: std.mem.Allocator, params: ConeParams) !Geometry {
         const radius = params.radius;
         const height = params.height;
         const segments = params.segments;
@@ -327,7 +334,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成线段
-    pub fn generateLine(allocator: std.mem.Allocator, params: LineParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateLine(allocator: std.mem.Allocator, params: LineParams) !Geometry {
         var vertices = try allocator.alloc(Vertex, 2);
         vertices[0] = Vertex{ .position = [3]f32{ params.x1, params.y1, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
         vertices[1] = Vertex{ .position = [3]f32{ params.x2, params.y2, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
@@ -340,7 +347,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成矩形边框
-    pub fn generateRect(allocator: std.mem.Allocator, params: RectParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateRect(allocator: std.mem.Allocator, params: RectParams) !Geometry {
         var vertices = try allocator.alloc(Vertex, 4);
         vertices[0] = Vertex{ .position = [3]f32{ params.x, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
         vertices[1] = Vertex{ .position = [3]f32{ params.x + params.width, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
@@ -359,7 +366,7 @@ pub const GeometryGenerators = struct {
     }
 
     // 生成填充矩形
-    pub fn generateFilledRect(allocator: std.mem.Allocator, params: RectParams) !struct { vertices: []Vertex, indices: []u16 } {
+    pub fn generateFilledRect(allocator: std.mem.Allocator, params: RectParams) !Geometry {
         var vertices = try allocator.alloc(Vertex, 4);
         vertices[0] = Vertex{ .position = [3]f32{ params.x, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
         vertices[1] = Vertex{ .position = [3]f32{ params.x + params.width, params.y, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };

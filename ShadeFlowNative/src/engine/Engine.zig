@@ -1,17 +1,12 @@
 const std = @import("std");
 
-const win32 = @import("win32").everything;
-
 const Matrix = @import("../utils/math/Matrix.zig").Matrix;
 const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
 const Time = @import("../utils/Time.zig").Time;
 const Window = @import("optional/Window.zig").Window;
-const Buffer = @import("render/Direct/Buffer.zig").Buffer;
-const Device = @import("render/Direct/Device.zig").Device;
-const Shader = @import("render/Direct/Shader.zig").Shader;
-const CommonInputLayouts = @import("render/Direct/Shader.zig").CommonInputLayouts;
-const Renderer = @import("render/Renderer.zig").Renderer;
-const ShaderManager = @import("render/ShaderManager.zig").ShaderManager;
+const platform = @import("platform/mod.zig");
+const render_api = @import("render/Renderer.zig");
+const Renderer = render_api.Renderer;
 const RenderObject = @import("scene/Object.zig").RenderObject;
 const IndexedRenderObject = @import("scene/Object.zig").IndexedRenderObject;
 const Transform = @import("scene/Transform.zig").Transform;
@@ -43,125 +38,109 @@ pub const Constants = struct {
 // 当前 Engine 承担了对象管理职责（render_objects、indexed_render_objects 及相关方法）。
 // 当功能扩展（如导入模型、场景层级、对象查询、多场景切换等）时，
 // 应将对象管理相关功能抽离到独立的 Scene 模块中。
-// 参考：src/engine/scene/Scene.zig（待实现）
 pub const Engine = struct {
-    hwnd: ?win32.HWND,
+    /// 原生窗口句柄（Composition/DLL 模式下为 null）。
+    native_window: ?render_api.NativeWindow,
     window: ?*Window = null,
     allocator: std.mem.Allocator,
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
     indexed_render_objects: std.ArrayList(IndexedRenderObject),
-    shader_manager: ShaderManager,
     size_changed: bool = false,
     time: Time,
-    constant_buffer: Buffer,
     camera: Camera = Camera{},
     viewport: ?Viewport = null,
 
-    // 为 Composition 初始化引擎
+    // =========================================================================
+    // 初始化
+    // =========================================================================
+
+    /// 为 WinUI 3 Composition 初始化（C# 通过 C-ABI 驱动；仅 Direct 后端支持）。
     pub fn initForComposition(allocator: std.mem.Allocator, width: u32, height: u32) !*Engine {
         var renderer = try Renderer.initForComposition(width, height);
         errdefer renderer.deinit();
-        const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
 
-        const engine = allocator.create(Engine) catch |err| {
-            std.debug.print("分配引擎失败: {}", .{err});
-            renderer.deinit();
-            return err;
-        };
-
-        // 初始化常量缓冲区
-        var constant_buffer = Buffer.init(.constant);
-        try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
-
-        engine.* = Engine{
-            .allocator = allocator,
-            .hwnd = null,
-            .renderer = renderer,
-            .render_objects = .empty,
-            .indexed_render_objects = .empty,
-            .shader_manager = shader_manager,
-            .time = Time.init(),
-            .constant_buffer = constant_buffer,
-            .camera = Camera{},
-        };
-        engine.camera.setAspectRatio(width, height);
-        return engine;
+        return create(allocator, renderer, null);
     }
-    // 为 HWND 初始化引擎
-    pub fn initForHwnd(allocator: std.mem.Allocator, hwnd: win32.HWND, width: u32, height: u32) !*Engine {
-        var renderer = try Renderer.initForHwnd(hwnd, width, height);
+
+    /// 为原生窗口初始化（独立窗口 demo；句柄由 windowkit 给出）。
+    pub fn initForHwnd(
+        allocator: std.mem.Allocator,
+        native_window: render_api.NativeWindow,
+        width: u32,
+        height: u32,
+    ) !*Engine {
+        var renderer = try Renderer.initForHwnd(native_window, width, height);
         errdefer renderer.deinit();
 
-        const shader_manager = ShaderManager.init(allocator, renderer.getDevice());
+        return create(allocator, renderer, native_window);
+    }
 
-        const engine = allocator.create(Engine) catch |err| {
-            renderer.deinit();
-            std.debug.print("分配引擎失败: {}", .{err});
-            renderer.deinit();
-            return err;
-        };
+    fn create(
+        allocator: std.mem.Allocator,
+        renderer: Renderer,
+        native_window: ?render_api.NativeWindow,
+    ) !*Engine {
+        const engine = try allocator.create(Engine);
+        errdefer allocator.destroy(engine);
 
-        // 初始化常量缓冲区
-        var constant_buffer = Buffer.init(.constant);
-        try constant_buffer.createConstantBuffer(renderer.getDevice(), @sizeOf(Constants));
-
-        engine.* = Engine{
+        engine.* = .{
             .allocator = allocator,
-            .hwnd = hwnd,
+            .native_window = native_window,
             .renderer = renderer,
             .render_objects = .empty,
             .indexed_render_objects = .empty,
-            .shader_manager = shader_manager,
             .time = Time.init(),
-            .constant_buffer = constant_buffer,
             .camera = Camera{},
         };
-        engine.camera.setAspectRatio(width, height);
+        engine.camera.setAspectRatio(renderer.width, renderer.height);
         return engine;
     }
 
-    // 添加渲染对象
-    pub fn addRenderObject(self: *Engine, vertices: []const Vertex, vertex_shader_path: []const u8, pixel_shader_path: []const u8, position: [3]f32) !void {
-        // 初始化顶点缓冲区
-        var vertex_buffer = Buffer.init(.vertex);
-        try vertex_buffer.createVertexBuffer(self.renderer.?.getDevice(), std.mem.sliceAsBytes(vertices), @sizeOf(Vertex), .immutable);
+    pub fn deinit(self: *Engine) void {
+        self.clearRenderObjects();
+        self.render_objects.deinit(self.allocator);
+        self.indexed_render_objects.deinit(self.allocator);
 
-        // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
-        const vertex_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, vertex_shader_path);
-        defer self.allocator.free(vertex_shader_wide);
+        if (self.renderer) |*r| r.deinit();
+        self.renderer = null;
+    }
 
-        // 加载顶点着色器
-        var vs_blob: ?*win32.ID3DBlob = null;
-        var hr = win32.D3DReadFileToBlob(@ptrCast(vertex_shader_wide.ptr), &vs_blob);
-        if (hr != win32.S_OK) {
-            std.debug.print("加载顶点着色器 blob 失败: 0x{X}\n", .{hr});
-            vertex_buffer.deinit();
-            return error.FailedToLoadVertexShader;
-        }
-        defer _ = vs_blob.?.IUnknown.Release();
+    /// 释放引擎自身（`init*` 是用 allocator.create 分配的）。
+    pub fn destroy(self: *Engine) void {
+        const allocator = self.allocator;
+        self.deinit();
+        allocator.destroy(self);
+    }
 
-        var shader = Shader.init();
-        try shader.loadVertexShader(self.renderer.?.getDevice(), @as([*]const u8, @ptrCast(vs_blob.?.GetBufferPointer()))[0..vs_blob.?.GetBufferSize()], CommonInputLayouts.positionColor());
+    // =========================================================================
+    // 对象
+    // =========================================================================
 
-        // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
-        const pixel_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, pixel_shader_path);
-        defer self.allocator.free(pixel_shader_wide);
+    /// 添加渲染对象（非索引绘制）。
+    pub fn addRenderObject(
+        self: *Engine,
+        vertices: []const Vertex,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        position: [3]f32,
+    ) !void {
+        const renderer = if (self.renderer) |*r| r else return error.EngineNotInitialized;
 
-        // 加载像素着色器
-        var ps_blob: ?*win32.ID3DBlob = null;
-        hr = win32.D3DReadFileToBlob(@ptrCast(pixel_shader_wide.ptr), &ps_blob);
-        if (hr != win32.S_OK) {
-            std.debug.print("加载像素着色器 blob 失败: 0x{X}\n", .{hr});
-            vertex_buffer.deinit();
-            shader.deinit();
-            return error.FailedToLoadPixelShader;
-        }
-        defer _ = ps_blob.?.IUnknown.Release();
+        var vertex_buffer = try renderer.createVertexBuffer(
+            std.mem.sliceAsBytes(vertices),
+            @sizeOf(Vertex),
+            .immutable,
+        );
+        errdefer vertex_buffer.deinit();
 
-        try shader.loadPixelShader(self.renderer.?.getDevice(), @as([*]const u8, @ptrCast(ps_blob.?.GetBufferPointer()))[0..ps_blob.?.GetBufferSize()]);
+        var shader = try renderer.createShaderFromFiles(
+            vertex_shader_path,
+            pixel_shader_path,
+            render_api.Types.position_color,
+        );
+        errdefer shader.deinit();
 
-        // 添加到渲染对象列表
         try self.render_objects.append(self.allocator, RenderObject{
             .object = .{
                 .vertex_buffer = vertex_buffer,
@@ -171,52 +150,34 @@ pub const Engine = struct {
         });
     }
 
-    // 新增：添加带索引的渲染对象
-    pub fn addIndexedRenderObject(self: *Engine, vertices: []const Vertex, indices: []const u16, vertex_shader_path: []const u8, pixel_shader_path: []const u8, position: [3]f32) !void {
-        // 初始化顶点缓冲区
-        var vertex_buffer = Buffer.init(.vertex);
-        try vertex_buffer.createVertexBuffer(self.renderer.?.getDevice(), std.mem.sliceAsBytes(vertices), @sizeOf(Vertex), .immutable);
+    /// 添加带索引的渲染对象。
+    pub fn addIndexedRenderObject(
+        self: *Engine,
+        vertices: []const Vertex,
+        indices: []const u16,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        position: [3]f32,
+    ) !void {
+        const renderer = if (self.renderer) |*r| r else return error.EngineNotInitialized;
 
-        // 初始化索引缓冲区
-        var index_buffer = Buffer.init(.index);
-        try index_buffer.createIndexBuffer(self.renderer.?.getDevice(), indices);
+        var vertex_buffer = try renderer.createVertexBuffer(
+            std.mem.sliceAsBytes(vertices),
+            @sizeOf(Vertex),
+            .immutable,
+        );
+        errdefer vertex_buffer.deinit();
 
-        // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
-        const vertex_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, vertex_shader_path);
-        defer self.allocator.free(vertex_shader_wide);
-        // 加载顶点着色器
-        var vs_blob: ?*win32.ID3DBlob = null;
-        var hr = win32.D3DReadFileToBlob(@ptrCast(vertex_shader_wide.ptr), &vs_blob);
-        if (hr != win32.S_OK) {
-            std.debug.print("加载顶点着色器 blob 失败: 0x{X}\n", .{hr});
-            vertex_buffer.deinit();
-            index_buffer.deinit();
-            return error.FailedToLoadVertexShader;
-        }
-        defer _ = vs_blob.?.IUnknown.Release();
+        var index_buffer = try renderer.createIndexBuffer(indices);
+        errdefer index_buffer.deinit();
 
-        var shader = Shader.init();
-        try shader.loadVertexShader(self.renderer.?.getDevice(), @as([*]const u8, @ptrCast(vs_blob.?.GetBufferPointer()))[0..vs_blob.?.GetBufferSize()], CommonInputLayouts.positionColor());
+        var shader = try renderer.createShaderFromFiles(
+            vertex_shader_path,
+            pixel_shader_path,
+            render_api.Types.position_color,
+        );
+        errdefer shader.deinit();
 
-        // 将 UTF-8 字符串转换为 Windows 宽字符串（UTF-16）
-        const pixel_shader_wide = try std.unicode.utf8ToUtf16LeAllocZ(self.allocator, pixel_shader_path);
-        defer self.allocator.free(pixel_shader_wide);
-
-        // 加载像素着色器
-        var ps_blob: ?*win32.ID3DBlob = null;
-        hr = win32.D3DReadFileToBlob(@ptrCast(pixel_shader_wide.ptr), &ps_blob);
-        if (hr != win32.S_OK) {
-            std.debug.print("加载像素着色器 blob 失败: 0x{X}\n", .{hr});
-            vertex_buffer.deinit();
-            index_buffer.deinit();
-            shader.deinit();
-            return error.FailedToLoadPixelShader;
-        }
-        defer _ = ps_blob.?.IUnknown.Release();
-
-        try shader.loadPixelShader(self.renderer.?.getDevice(), @as([*]const u8, @ptrCast(ps_blob.?.GetBufferPointer()))[0..ps_blob.?.GetBufferSize()]);
-
-        // 添加到索引渲染对象列表
         try self.indexed_render_objects.append(self.allocator, IndexedRenderObject{
             .object = .{
                 .vertex_buffer = vertex_buffer,
@@ -253,106 +214,32 @@ pub const Engine = struct {
         const vertex_path = std.mem.sliceTo(vertex_shader_path, 0);
         const pixel_path = std.mem.sliceTo(pixel_shader_path, 0);
 
-        switch (params.*) {
-            .Cube => {
-                const cube_params = params.Cube;
-                const geometry = GeometryGenerators.generateCube(allocator, cube_params) catch |err| {
-                    std.debug.print("生成立方体错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加立方体错误: {}\n", .{err});
-                };
-            },
-            .Sphere => {
-                const sphere_params = params.Sphere;
-                const geometry = GeometryGenerators.generateSphere(allocator, sphere_params) catch |err| {
-                    std.debug.print("生成球体错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加球体错误: {}\n", .{err});
-                };
-            },
-            .Cylinder => {
-                const cylinder_params = params.Cylinder;
-                const geometry = GeometryGenerators.generateCylinder(allocator, cylinder_params) catch |err| {
-                    std.debug.print("生成圆柱体错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加圆柱体错误: {}\n", .{err});
-                };
-            },
-            .Cone => {
-                const cone_params = params.Cone;
-                const geometry = GeometryGenerators.generateCone(allocator, cone_params) catch |err| {
-                    std.debug.print("生成圆锥体错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加圆锥体错误: {}\n", .{err});
-                };
-            },
-            .Line => {
-                const line_params = params.Line;
-                const geometry = GeometryGenerators.generateLine(allocator, line_params) catch |err| {
-                    std.debug.print("生成线段错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加线段错误: {}\n", .{err});
-                };
-            },
-            .Rect => {
-                const rect_params = params.Rect;
-                const geometry = GeometryGenerators.generateRect(allocator, rect_params) catch |err| {
-                    std.debug.print("生成矩形错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加矩形错误: {}\n", .{err});
-                };
-            },
-            .FilledRect => {
-                const filled_rect_params = params.FilledRect;
-                const geometry = GeometryGenerators.generateFilledRect(allocator, filled_rect_params) catch |err| {
-                    std.debug.print("生成填充矩形错误: {}\n", .{err});
-                    return;
-                };
-                defer {
-                    allocator.free(geometry.vertices);
-                    allocator.free(geometry.indices);
-                }
-                self.addIndexedRenderObject(geometry.vertices, geometry.indices, vertex_path, pixel_path, .{ pos_x, pos_y, pos_z }) catch |err| {
-                    std.debug.print("添加填充矩形错误: {}\n", .{err});
-                };
-            },
+        const generated = switch (params.*) {
+            .Cube => GeometryGenerators.generateCube(allocator, params.Cube),
+            .Sphere => GeometryGenerators.generateSphere(allocator, params.Sphere),
+            .Cylinder => GeometryGenerators.generateCylinder(allocator, params.Cylinder),
+            .Cone => GeometryGenerators.generateCone(allocator, params.Cone),
+            .Line => GeometryGenerators.generateLine(allocator, params.Line),
+            .Rect => GeometryGenerators.generateRect(allocator, params.Rect),
+            .FilledRect => GeometryGenerators.generateFilledRect(allocator, params.FilledRect),
+        } catch |err| {
+            std.log.err("生成几何体失败（{s}）: {s}", .{ @tagName(params.*), @errorName(err) });
+            return;
+        };
+        defer {
+            allocator.free(generated.vertices);
+            allocator.free(generated.indices);
         }
+
+        self.addIndexedRenderObject(
+            generated.vertices,
+            generated.indices,
+            vertex_path,
+            pixel_path,
+            .{ pos_x, pos_y, pos_z },
+        ) catch |err| {
+            std.log.err("添加几何体失败: {s}", .{@errorName(err)});
+        };
     }
 
     // 清除所有渲染对象
@@ -362,25 +249,15 @@ pub const Engine = struct {
         }
         self.render_objects.clearAndFree(self.allocator);
 
-        // 清除索引渲染对象
         for (self.indexed_render_objects.items) |*indexed_render_object| {
             indexed_render_object.deinit();
         }
         self.indexed_render_objects.clearAndFree(self.allocator);
     }
 
-    pub fn deinit(self: *Engine) void {
-        self.clearRenderObjects();
-        self.render_objects.deinit(self.allocator);
-        self.indexed_render_objects.deinit(self.allocator);
-        self.shader_manager.deinit();
-        self.constant_buffer.deinit();
-        self.constant_buffer.deinit();
-
-        if (self.renderer) |*r| {
-            r.deinit();
-        }
-    }
+    // =========================================================================
+    // 主循环
+    // =========================================================================
 
     // 设置窗口实例
     pub fn setWindow(self: *Engine, window: *Window) void {
@@ -404,16 +281,7 @@ pub const Engine = struct {
         // 同帧重复派发；只有外部宿主（Composition/DLL 模式，没有 Window
         // 实例）时才由引擎自己排空消息。
         if (self.window == null) {
-            var msg: win32.MSG = undefined;
-            while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
-                _ = win32.TranslateMessage(&msg);
-                _ = win32.DispatchMessageW(&msg);
-
-                // 如果收到 WM_QUIT 消息，则退出主循环
-                if (msg.message == win32.WM_QUIT) {
-                    return false;
-                }
-            }
+            if (!platform.pumpMessages()) return false;
         }
 
         // 处理 Win32 窗口的输入
@@ -503,7 +371,7 @@ pub const Engine = struct {
         if (self.size_changed) {
             // 处理窗口大小变化
             self.handleResize() catch |err| {
-                std.debug.print("处理窗口大小变化失败: {}\n", .{err});
+                std.log.err("处理窗口大小变化失败: {s}", .{@errorName(err)});
             };
             self.size_changed = false;
         }
@@ -525,91 +393,80 @@ pub const Engine = struct {
     }
 
     pub fn render(self: *Engine) void {
-        if (self.renderer) |*r| {
-            r.beginFrame([4]f32{ 0.0, 0.0, 0.0, 0.0 });
+        const renderer = if (self.renderer) |*r| r else return;
 
-            // 获取相机的视图矩阵和投影矩阵
-            const view_matrix = self.camera.getViewMatrix();
-            const proj_matrix = self.camera.getProjectionMatrix();
+        renderer.beginFrame(.{ 0.0, 0.0, 0.0, 0.0 });
 
-            // 渲染普通对象
-            for (self.render_objects.items) |render_object| {
-                // 从物体的 transform 获取世界矩阵
-                const world_matrix = render_object.object.transform.getWorldMatrix();
+        const view_matrix = self.camera.getViewMatrix();
+        const proj_matrix = self.camera.getProjectionMatrix();
 
-                // 更新常量缓冲区
-                const constants = Constants{
-                    .mView = view_matrix,
-                    .mProj = proj_matrix,
-                    .mWorld = world_matrix,
-                    .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
-                    .timeAndSelect = [4]f32{
-                        @as(f32, @floatCast(self.time.getTotalTime())),
-                        if (render_object.object.is_select) 1.0 else 0.0,
-                        0.0,
-                        0.0,
-                    },
-                };
-                self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
-                    std.debug.print("更新常量缓冲区失败: {}\n", .{err});
-                };
+        // 渲染普通对象
+        for (self.render_objects.items) |*render_object| {
+            const object = &render_object.object;
+            const constants = self.buildConstants(
+                object.transform.getWorldMatrix(),
+                object.is_select,
+                view_matrix,
+                proj_matrix,
+            );
 
-                // 绑定常量缓冲区到顶点着色器的 b0 槽位
-                self.constant_buffer.bindConstantBufferVS(r.getDeviceContext(), 0);
-                // 绑定常量缓冲区到像素着色器的 b0 槽位
-                self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
-
-                // 设置渲染状态
-                render_object.object.shader.use(r.getDeviceContext());
-                render_object.object.vertex_buffer.bindVertexBuffer(r.getDeviceContext(), 0);
-                // 设置图元拓扑为三角形列表
-                r.getDeviceContext().IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                // 执行绘制调用
-                r.getDeviceContext().Draw(render_object.object.vertex_buffer.count, 0);
-            }
-
-            // 渲染索引对象
-            for (self.indexed_render_objects.items) |indexed_render_object| {
-                // 从物体的 transform 获取世界矩阵
-                const world_matrix = indexed_render_object.object.transform.getWorldMatrix();
-
-                // 更新常量缓冲区
-                const constants = Constants{
-                    .mView = view_matrix,
-                    .mProj = proj_matrix,
-                    .mWorld = world_matrix,
-                    .gColor = [4]f32{ 1.0, 1.0, 1.0, 1.0 },
-                    .timeAndSelect = [4]f32{
-                        @as(f32, @floatCast(self.time.getTotalTime())),
-                        if (indexed_render_object.object.is_select) 1.0 else 0.0,
-                        0.0,
-                        0.0,
-                    },
-                };
-                self.constant_buffer.updateConstantBuffer(r.getDeviceContext(), std.mem.asBytes(&constants)) catch |err| {
-                    std.debug.print("更新常量缓冲区失败: {}\n", .{err});
-                };
-
-                // 绑定常量缓冲区到顶点着色器的 b0 槽位
-                self.constant_buffer.bindConstantBufferVS(r.getDeviceContext(), 0);
-                // 绑定常量缓冲区到像素着色器的 b0 槽位
-                self.constant_buffer.bindConstantBufferPS(r.getDeviceContext(), 0);
-
-                // 设置渲染状态
-                indexed_render_object.object.shader.use(r.getDeviceContext());
-                // 绑定缓冲区
-                indexed_render_object.object.vertex_buffer.bindVertexBuffer(r.getDeviceContext(), 0);
-                indexed_render_object.index_buffer.bindIndexBuffer(r.getDeviceContext());
-                // 设置图元拓扑为三角形列表
-                r.getDeviceContext().IASetPrimitiveTopology(win32.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-                // 执行索引绘制调用
-                r.getDeviceContext().DrawIndexed(indexed_render_object.index_count, 0, 0);
-            }
-
-            // 结束帧并呈现
-            r.endFrame();
+            renderer.setConstants(std.mem.asBytes(&constants)) catch |err| {
+                std.log.err("更新常量缓冲区失败: {s}", .{@errorName(err)});
+                continue;
+            };
+            renderer.draw(&object.shader, &object.vertex_buffer, object.vertex_buffer.count);
         }
+
+        // 渲染索引对象
+        for (self.indexed_render_objects.items) |*indexed_render_object| {
+            const object = &indexed_render_object.object;
+            const constants = self.buildConstants(
+                object.transform.getWorldMatrix(),
+                object.is_select,
+                view_matrix,
+                proj_matrix,
+            );
+
+            renderer.setConstants(std.mem.asBytes(&constants)) catch |err| {
+                std.log.err("更新常量缓冲区失败: {s}", .{@errorName(err)});
+                continue;
+            };
+            renderer.drawIndexed(
+                &object.shader,
+                &object.vertex_buffer,
+                &indexed_render_object.index_buffer,
+                indexed_render_object.index_count,
+            );
+        }
+
+        // 结束帧并呈现
+        renderer.endFrame();
     }
+
+    fn buildConstants(
+        self: *Engine,
+        world_matrix: [4][4]f32,
+        is_select: bool,
+        view_matrix: [4][4]f32,
+        proj_matrix: [4][4]f32,
+    ) Constants {
+        return .{
+            .mView = view_matrix,
+            .mProj = proj_matrix,
+            .mWorld = world_matrix,
+            .gColor = .{ 1.0, 1.0, 1.0, 1.0 },
+            .timeAndSelect = .{
+                @as(f32, @floatCast(self.time.getTotalTime())),
+                if (is_select) 1.0 else 0.0,
+                0.0,
+                0.0,
+            },
+        };
+    }
+
+    // =========================================================================
+    // Resize
+    // =========================================================================
 
     // 处理窗口大小变化
     fn handleResize(self: *Engine) !void {
@@ -618,10 +475,10 @@ pub const Engine = struct {
             try self.resizeRenderer(size.width, size.height);
             return;
         }
-        std.debug.print("无法处理窗口大小变化：没有窗口或HWND\n", .{});
+        std.log.warn("无法处理窗口大小变化：没有窗口", .{});
     }
 
-    /// 手动调整渲染器大小（用于外部swapchain或需要精确控制大小的场景）
+    /// 手动调整渲染器大小（用于外部 swapchain 或需要精确控制大小的场景）。
     pub fn resizeRenderer(self: *Engine, width: u32, height: u32) !void {
         if (self.renderer) |*r| {
             // 设置视口大小
@@ -635,13 +492,5 @@ pub const Engine = struct {
             // 更新相机宽高比
             self.camera.setAspectRatio(width, height);
         }
-    }
-
-    // 重新加载着色器到新的设备
-    fn reloadShaders(self: *Engine, device: *Device) !void {
-        // 重置着色器状态，但不释放资源（因为新设备需要重新创建）
-        // 这部分需要重构，但现在保持原样以兼容现有代码
-        _ = self;
-        _ = device;
     }
 };

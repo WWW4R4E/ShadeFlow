@@ -1,22 +1,47 @@
 # AGENTS.md
 
-ShadeFlow 分两半：`ShadeFlowNative/`（Zig + D3D11 引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
-根 `Readme.md` 的结构图已部分过时（没有 `engine/core/`，渲染器在 `engine/render/`）。以代码为准。
+ShadeFlow 分两半：`ShadeFlowNative/`（Zig 图形引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
+Windows 走 Direct3D 11（计划迁 D3D12），Linux 走 Vulkan（当前是骨架）。
+根 `Readme.md` 的结构图已部分过时（没有 `engine/core/`）；以代码为准。
 
 ## 命令（都在 `ShadeFlowNative/` 下执行）
 
-- `zig build` —— 同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。**仓库没有配置任何测试步骤**，改完靠构建 + 跑起来验证。
+- `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。**仓库没有配置任何测试步骤**，改完靠构建 + 跑起来验证。
 - `zig build run` —— 跑独立窗口 demo（窗口/输入改动的常规验证方式）。
-- `zig build dll` —— 额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
+- `zig build dll` —— **仅 Windows**：额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
+- `zig build typecheck-linux` —— 从任意主机只分析 `src/engine/render/`（含 Vulkan 骨架），只出 object、不链接，所以本机不需要 wayland-client / Vulkan SDK。完整 Linux 构建请在 Linux 上 `zig build`。
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
-- 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`；Readme 里的 0.15.2 是过时的。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）。
+- 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
+- 着色器工具链注意：D3D12 落地时 `compile_shaders.bat` 要从 `fxc` 换到 `dxc` + SM 6.x；fxc 产出的 vs_5_0 二进制 D3D12 不认。
 - 依赖（`win32`、`windowkit`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
+
+## 渲染后端分层（重要）
+
+```
+src/engine/render/
+  Renderer.zig        ← 门面：pub const Renderer = backend.Renderer（类型别名）
+  Types.zig           ← 后端中立的描述类型 + NativeWindow union
+  root.zig            ← 只给 typecheck-linux 用的独立入口
+  backend/
+    mod.zig           ← 按 builtin.os.tag 编译期选后端 + 契约方法检查
+    d3d11/            ← Windows
+    vulkan/           ← Linux（骨架：initForHwnd 返回 BackendNotImplemented）
+```
+
+- `Engine.zig`、`scene/`、`root.zig`、`optional/Window.zig` **只能** import `render/Renderer.zig` 与 `render/Types.zig`；出现 `backend/d3d11/...` 的 import 就是分层回退。
+- 新后端必须满足 `backend/mod.zig` 里列出的契约方法（`initForHwnd` / `beginFrame` / `createVertexBuffer` / `drawIndexed` …），缺一个在编译期报错。
+- `Types.NativeWindow` 与 windowkit 的 `NativeHandles` 字段一一对应，但**独立定义**：窗口适配层负责转换，渲染层不依赖 windowkit。这样 Linux 渲染分支可以脱离 wayland 链接项单独 typecheck。
+- 资源类型通过门面转出（`Renderer.Buffer/Shader/Texture`）；`scene/Object.zig` 不再 import 后端文件。
+- `Renderer` 自己持有常量缓冲区（`setConstants` 懒创建），`Engine` 不再管 `Buffer`。
+- 后端差异备忘：D3D12 的常量缓冲要 256 字节对齐（当前 `Constants` 是 224，迁移时必须 padding）、状态对象要变成 PSO 缓存、Vulkan 需要翻转 Y 轴 / 用 SPIR-V。详见 `backend/vulkan/mod.zig` 顶部注释。
 
 ## ABI / 两模式边界
 
-- `src/main.zig` = 独立 HWND 应用；`src/root.zig` = 给 WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式）。
+- `src/main.zig` = 独立窗口应用；`src/root.zig` = 给 WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式）。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
+- `ShadeFlow_GetSwapChain` 通过后端中立的 `Renderer.swapChainInteropHandle()` 返回 `?*anyopaque`（D3D11 是 `IDXGISwapChain1*`，非 Direct 后端返回 null）。
 - `src/root.zig` 的每个 `export fn` 必须和 `ShadeFlowUI/Natives/ShadeFlowNative.cs` 的 `[DllImport(..., CallingConvention.Cdecl)]` 一一对应。`GeometryParams` 是 `extern` 布局的 tagged union，C# 侧用 `[StructLayout(LayoutKind.Explicit)]` 手工对齐——两边任意一侧改字段都要同步。
-- `Engine.update` 只在 `self.window == null`（DLL/Composition 由 C# 驱动）时自己泵 Win32 消息；有窗口时消息循环归 windowkit，再泵会重复派发。
+- `Engine.update` 只在 `self.window == null`（DLL/Composition 由 C# 驱动）时调 `platform.pumpMessages()`；有窗口时消息循环归 windowkit，再泵会重复派发。
+- `Engine` 用 `allocator.create` 分配：销毁用 `engine.destroy()`，不要只 `deinit()`（会漏 Engine 结构体本身）。
 
 ## 窗口层（windowkit 适配）— 踩过的坑
 

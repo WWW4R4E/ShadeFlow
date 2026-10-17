@@ -1,5 +1,5 @@
-const Buffer = @import("../render/Direct/Buffer.zig").Buffer;
-const Shader = @import("../render/Direct/Shader.zig").Shader;
+const Buffer = @import("../render/Renderer.zig").Buffer;
+const Shader = @import("../render/Renderer.zig").Shader;
 const Transform = @import("Transform.zig").Transform;
 
 // 基础渲染对象，包含所有可渲染物体的共同属性

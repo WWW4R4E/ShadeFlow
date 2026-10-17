@@ -1,10 +1,13 @@
 //! 窗口适配层 —— 包装 windowkit（https://github.com/WWW4R4E/windowkit）。
 //!
 //! windowkit 是 GLFW 式纯窗口库：窗口创建/销毁、事件循环、输入/IME/DPI、
-//! 文件拖放、vsync 帧节拍，渲染归接入方（本引擎的 D3D11 Renderer）。
-//! 本模块把 windowkit 的 `Platform` / `PlatformWindow` 适配成引擎内部
-//! 的 `Window` 接口：输入事件翻译进 `Input` 状态结构，尺寸变化通过
-//! `size_changed` 标志同步，事件循环和帧节拍交给 `plat.run()`。
+//! 文件拖放、vsync 帧节拍，渲染归接入方。本模块把 windowkit 的
+//! `Platform` / `PlatformWindow` 适配成引擎内部的 `Window` 接口：输入事件
+//! 翻译进 `Input` 状态结构，尺寸变化通过 `size_changed` 标志同步，事件循环
+//! 和帧节拍交给 `plat.run()`。
+//!
+//! 原生句柄原样交给渲染后端（Windows/HWND、Linux/Wayland display+surface），
+//! 本层不解释它们。
 //!
 //! Windows 后端契约（见 windowkit README）：
 //! - 消息泵、输入回调、渲染回调全部串行在 UI 线程，无需加锁；
@@ -12,19 +15,21 @@
 //!   每次派发后需要 `requestRender()` 重新预约下一帧（连续渲染模式）。
 
 const std = @import("std");
-const win32 = @import("win32").everything;
 
 const windowkit = @import("windowkit");
 const wkInput = windowkit.input;
 
 const Input = @import("Input.zig").Input;
 const Engine = @import("../Engine.zig").Engine;
+const render_api = @import("../render/Renderer.zig");
 
 pub const Window = struct {
     allocator: std.mem.Allocator,
     plat: windowkit.Platform = undefined,
     win: ?*windowkit.PlatformWindow = null,
-    hwnd: ?win32.HWND = null,
+    /// 平台原生句柄（HWND / wl_display+wl_surface / …），已转换成渲染层的中立
+    /// union。渲染后端用它建 surface。
+    native_handles: ?render_api.NativeWindow = null,
     running: bool = true,
     size_changed: bool = false,
     input: Input,
@@ -43,7 +48,7 @@ pub const Window = struct {
         errdefer self.plat.deinit();
 
         const options: windowkit.WindowOptions = .{
-            .title = "ZigDx11 Engine",
+            .title = "ShadeFlow",
             .width = 1600,
             .height = 900,
             .centered = true,
@@ -54,11 +59,8 @@ pub const Window = struct {
         self.win = try windowkit.PlatformWindow.init(allocator, &self.plat, &options);
         errdefer self.win.?.deinit();
 
-        // 原生句柄：交给引擎建 D3D11 surface / swapchain。
-        switch (self.win.?.nativeHandles()) {
-            .win32 => |w| self.hwnd = @ptrCast(@alignCast(w.hwnd)),
-            else => return error.UnsupportedBackend, // 本引擎只有 Direct/Windows 路径
-        }
+        // 原生句柄：交给渲染后端建 surface / swapchain。
+        self.native_handles = convertNativeHandles(self.win.?.nativeHandles());
 
         // 回调：输入 → Input 状态，关闭 → 退出循环，resize → size_changed。
         self.win.?.setUserData(self);
@@ -86,6 +88,11 @@ pub const Window = struct {
     /// windowkit 的 PlatformWindow（给主循环设置渲染回调等）。
     pub fn platform_window(self: *Window) ?*windowkit.PlatformWindow {
         return self.win;
+    }
+
+    /// 原生窗口句柄，交给渲染后端。
+    pub fn nativeHandles(self: *Window) ?render_api.NativeWindow {
+        return self.native_handles;
     }
 
     /// 客户区物理像素尺寸（swapchain 用它；PerMonitorV2 下是真实物理值）。
@@ -190,3 +197,20 @@ pub const Window = struct {
         return false;
     }
 };
+
+/// windowkit 原生句柄 → 渲染层中立句柄。
+///
+/// 两边字段一一对应；转换放在窗口适配层，渲染层因此不需要 import windowkit，
+/// Linux 分支也能脱离 wayland 链接项单独做类型检查。
+fn convertNativeHandles(handles: windowkit.NativeHandles) render_api.NativeWindow {
+    return switch (handles) {
+        .win32 => |h| .{ .win32 = .{ .hwnd = h.hwnd, .hinstance = h.hinstance } },
+        .wayland => |h| .{ .wayland = .{ .display = h.display, .surface = h.surface } },
+        .appkit => |h| .{ .appkit = .{
+            .ns_window = h.ns_window,
+            .ns_view = h.ns_view,
+            .metal_layer = h.metal_layer,
+        } },
+        .web => .{ .web = .{} },
+    };
+}

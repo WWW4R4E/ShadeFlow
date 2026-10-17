@@ -11,21 +11,38 @@ ShadeFlow/
 ├── ShadeFlowNative/          # Zig 原生引擎
 │   ├── src/
 │   │   ├── engine/
-│   │   │   ├── core/         # 核心引擎 (Engine.zig)
-│   │   │   ├── optional/     # 可选功能 (Window.zig, Input.zig)
-│   │   │   ├── renderer/     # 渲染器模块
-│   │   │   └── resources/    # 资源管理
-│   │   ├── utils/            # 工具类 (Time.zig)
+│   │   │   ├── Engine.zig    # 引擎主体（相机/场景对象/主循环）
+│   │   │   ├── optional/     # 窗口与输入（windowkit 适配层）
+│   │   │   ├── platform/     # 平台相关小工具（宿主消息泵）
+│   │   │   ├── render/       # 渲染门面（Types.zig + Renderer.zig）
+│   │   │   │   └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux）
+│   │   │   ├── scene/        # 变换、对象、几何生成
+│   │   │   └── view/         # 相机与拾取
+│   │   ├── utils/            # 工具类 (Time.zig、数学库)
 │   │   ├── main.zig          # 独立运行入口
 │   │   └── root.zig          # C# 互操作接口
+│   ├── assets/shaders/       # HLSL 源码
+│   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）
 │   └── build.zig             # Zig 构建配置
 ├── ShadeFlowUI/              # WinUI 3 界面项目
 │   ├── Views/                # 界面视图
 │   ├── Controls/             # 自定义控件
 │   ├── Models/               # 数据模型
 │   └── Natives/              # 原生互操作
-└── compile_shaders.bat       # 着色器编译脚本
+└── 笔记/                     # 渲染/相机/矩阵的设计推导
 ```
+
+## 平台与渲染后端
+
+| 平台 | 渲染后端 | 窗口 |
+|---|---|---|
+| Windows | Direct3D 11（D3D12 计划中） | WinUI 3 `SwapChainPanel` 或独立 HWND |
+| Linux | Vulkan（骨架，待实现） | Wayland（windowkit） |
+
+后端在 `src/engine/render/backend/mod.zig` 按 `builtin.os.tag` 编译期选择；
+`Engine` / `scene` 只依赖 `render/Types.zig` 与门面类型，不能直接 import 任何
+`backend/<api>/`。
+
 
 ## 核心特性
 
@@ -46,14 +63,15 @@ ShadeFlow/
 ## 快速开始
 
 ### 环境要求
-- Zig 编译器 (0.15.2)
-- Windows 10/11 SDK
+- Zig 编译器 (0.17.0)
+- Windows 10/11 SDK（D3D11 后端）；Linux 侧需要 `wayland-client`，Vulkan 后端落地后还需要 Vulkan SDK
 
 ### 构建 Zig 引擎
 ```bash
 cd ShadeFlowNative
-zig build dll    # 构建 DLL 用于 WinUI 3 集成
+zig build dll    # Windows：构建 DLL 并复制到 ShadeFlowUI
 zig build run    # 独立运行测试
+zig build typecheck-linux   # 任意主机分析 Linux/Vulkan 分支（只出 object，不链接）
 ```
 
 ### 运行独立测试

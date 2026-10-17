@@ -1,7 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
 
-const win32 = @import("ShadeFlowNative").win32;
 const Engine = @import("ShadeFlowNative").Engine;
 const Vertex = @import("ShadeFlowNative").Vertex;
 const Window = @import("ShadeFlowNative").Window;
@@ -15,13 +14,12 @@ pub fn main() !void {
     defer Mainwindow.deinit();
 
     const size = Mainwindow.getClientSize();
+    const native_handles = Mainwindow.nativeHandles() orelse return error.NoNativeWindowHandle;
 
-    var engine = try Engine.initForHwnd(allocator, Mainwindow.hwnd.?, size.width, size.height);
+    var engine = try Engine.initForHwnd(allocator, native_handles, size.width, size.height);
     engine.setWindow(Mainwindow);
-    defer {
-        engine.deinit();
-        allocator.destroy(engine);
-    }
+    // 先销毁渲染资源，再关窗口（windowkit 的契约）。
+    defer engine.destroy();
 
     const object_params = GeometryGenerators.GeometryParams{ .Cube = GeometryGenerators.CubeParams{ .size = 1.0 } };
 
