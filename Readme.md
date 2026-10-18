@@ -66,14 +66,16 @@ ShadeFlow/
 ### 环境要求
 - Zig 编译器 (0.17.0)
 - Windows 10/11 SDK（D3D11 后端）
-- Linux：Wayland + `libvulkan.so.1`（运行时加载器）；构建期不需要 Vulkan SDK，绑定由 `vendor/vk.xml` 生成
+- Vulkan 后端：`glslc`（Vulkan SDK / shaderc；也可用 `-Dglslc=<path>` 指定）
+- Linux：Wayland + `libvulkan.so.1`（运行时加载器）；绑定由 `vendor/vk.xml` 生成
+- Windows 想跑 Vulkan：内嵌 loader 从 `vulkan-1.dll` 运行时加载，驱动装好即可
 
 ### 构建 Zig 引擎
 ```bash
 cd ShadeFlowNative
 zig build dll    # Windows：构建 DLL 并复制到 ShadeFlowUI
-zig build run    # 独立运行测试
-zig build typecheck-linux   # 任意主机分析 Linux/Vulkan 分支（只出 object，不链接）
+zig build run    # 独立运行测试（Windows 默认 D3D11）
+zig build run -Dbackend=vulkan   # Windows 切到 Vulkan 后端
 ```
 
 ### 运行独立测试

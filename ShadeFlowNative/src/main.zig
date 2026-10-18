@@ -1,10 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Io = std.Io;
 
 const Engine = @import("ShadeFlowNative").Engine;
 const Vertex = @import("ShadeFlowNative").Vertex;
 const Window = @import("ShadeFlowNative").Window;
+const shader_format = @import("ShadeFlowNative").shader_format;
 const GeometryGenerators = @import("ShadeFlowNative").GeometryGenerators;
 
 pub fn main() !void {
@@ -34,9 +34,17 @@ pub fn main() !void {
 
     // 着色器按 exe 目录相对定位（zig-out/bin/../shaders/，与 compile_shaders.bat
     // 和 build.zig 的安装位置一致）。两边都用 fs.path.join，不再写死 `\\`。
-    // Windows 是 fxc 产的 .cso，Linux 是 glslc 产的 .spv。
-    const vs_name = if (builtin.os.tag == .windows) "Basic3DVS.cso" else "Basic3D.vert.spv";
-    const ps_name = if (builtin.os.tag == .windows) "Basic3DPS.cso" else "Basic3D.frag.spv";
+    //
+    // 后缀跟随后端而不是操作系统：Windows 默认 D3D11（fxc 的 .cso），
+    // `-Dbackend=vulkan` 时和 Linux 一样读 SPIR-V（.spv）。
+    const vs_name = switch (shader_format) {
+        .dxbc => "Basic3DVS.cso",
+        .spirv => "Basic3DVS.spv",
+    };
+    const ps_name = switch (shader_format) {
+        .dxbc => "Basic3DPS.cso",
+        .spirv => "Basic3DPS.spv",
+    };
 
     const vs_path = try std.fs.path.join(allocator, &.{ app_dir, "..", "shaders", vs_name });
     defer allocator.free(vs_path);

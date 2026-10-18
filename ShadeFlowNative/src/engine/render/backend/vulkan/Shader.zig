@@ -12,7 +12,7 @@ const std = @import("std");
 
 const vk = @import("vulkan");
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
 const Buffer = @import("Buffer.zig").Buffer;
 const Device = @import("Device.zig").Device;
 const Pipeline = @import("Pipeline.zig");

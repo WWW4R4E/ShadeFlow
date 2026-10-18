@@ -8,7 +8,7 @@ const std = @import("std");
 
 const win32 = @import("win32").everything;
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
 const Error = @import("Error.zig");
 
 const BufferImpl = @import("Buffer.zig").Buffer;

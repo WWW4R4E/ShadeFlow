@@ -7,4 +7,6 @@ pub const Engine = @import("engine/Engine.zig").Engine;
 pub const Vertex = @import("engine/Engine.zig").Vertex;
 pub const Window = @import("engine/optional/Window.zig").Window;
 pub const Renderer = @import("engine/render/Renderer.zig").Renderer;
+/// 当前渲染后端的着色器格式（`.dxbc` / `.spirv`）。
+pub const shader_format = @import("engine/render/Renderer.zig").shader_format;
 pub const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;

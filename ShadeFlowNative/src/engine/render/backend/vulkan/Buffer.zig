@@ -13,7 +13,7 @@ const std = @import("std");
 
 const vk = @import("vulkan");
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
 const Device = @import("Device.zig").Device;
 
 pub const BufferKind = enum { vertex, index, uniform };

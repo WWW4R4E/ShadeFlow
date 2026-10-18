@@ -19,7 +19,7 @@ const std = @import("std");
 
 const vk = @import("vulkan");
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
 const Device = @import("Device.zig").Device;
 
 /// 影响 PSO 的那部分管线状态。D3D11 里它们是分开绑的，这里合成一个键。

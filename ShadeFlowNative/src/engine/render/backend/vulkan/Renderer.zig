@@ -1,4 +1,4 @@
-//! Vulkan 渲染后端（Linux / Wayland）。
+//! Vulkan 渲染后端（Windows / Win32、Linux / Wayland）。
 //!
 //! 帧流程与 D3D11 后端的语义对齐，但 Vulkan 要求 CPU 显式管同步：
 //!
@@ -17,7 +17,7 @@ const builtin = @import("builtin");
 
 const vk = @import("vulkan");
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
 const BufferImpl = @import("Buffer.zig").Buffer;
 const Descriptor = @import("Descriptor.zig").Descriptor;
 const Device = @import("Device.zig").Device;

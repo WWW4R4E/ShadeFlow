@@ -1,35 +1,76 @@
-//! VkInstance + Wayland surface + 校验层。
+//! VkInstance + 平台 surface（Windows/Wayland）+ 校验层。
 //!
-//! 加载方式：直接 `dlopen("libvulkan.so.1")` 取 `vkGetInstanceProcAddr`，
-//! 不在链接期依赖 `libvulkan.so`（很多发行版只装运行时、没有 -dev 软链）。
+//! 加载方式：运行时加载 Vulkan loader 并取 `vkGetInstanceProcAddr`，不在
+//! 链接期依赖 `vulkan-1.lib` / `libvulkan.so`。
+//!
+//! - Linux：`std.DynLib` + `libvulkan.so.1`（很多发行版只装运行时、没有 -dev 软链）。
+//! - Windows：`std.DynLib` 没有 Windows 实现，改走 kernel32 的
+//!   `LoadLibraryA("vulkan-1.dll")` + `GetProcAddress`。
 //!
 //! wrapper 按值保存在结构体里，不持有指向自身的指针，所以 `Instance` 可以
 //! 安全地按值返回/移动。
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const vk = @import("vulkan");
 
-const Types = @import("../../Types.zig");
+const Types = @import("render_types");
+
+/// 只有 Windows 目标会分析 `WindowsLoader`；Linux 分支的 `win32` 是空占位，
+/// 保证 `typecheck-linux` 不需要 win32 模块。
+const win32 = if (builtin.os.tag == .windows) @import("win32").everything else struct {};
 
 pub const validation_layer_name = "VK_LAYER_KHRONOS_validation";
 
+/// Vulkan loader 的动态库名。
+const loader_name: [*:0]const u8 = switch (builtin.os.tag) {
+    .windows => "vulkan-1.dll",
+    .linux => "libvulkan.so.1",
+    else => @compileError("Vulkan 后端只支持 Windows / Linux"),
+};
+
+/// `std.DynLib` 在 Windows 上是 `@compileError`，这里按平台换实现。
+const Loader = if (builtin.os.tag == .windows) WindowsLoader else std.DynLib;
+
+const WindowsLoader = struct {
+    handle: win32.HINSTANCE,
+
+    fn openZ(path: [*:0]const u8) !WindowsLoader {
+        const handle = win32.LoadLibraryA(path) orelse return error.FileNotFound;
+        return .{ .handle = handle };
+    }
+
+    fn close(self: *WindowsLoader) void {
+        _ = win32.FreeLibrary(self.handle);
+        self.* = undefined;
+    }
+
+    fn lookup(self: *WindowsLoader, comptime T: type, name: [:0]const u8) ?T {
+        const proc = win32.GetProcAddress(self.handle, name.ptr) orelse return null;
+        return @as(T, @ptrFromInt(@intFromPtr(proc)));
+    }
+};
+
 pub const Instance = struct {
-    lib: std.DynLib,
+    lib: Loader,
     base: vk.BaseWrapper,
     wrapper: vk.InstanceWrapper,
     handle: vk.Instance,
     surface: vk.SurfaceKHR,
     debug_messenger: ?vk.DebugUtilsMessengerEXT = null,
 
-    /// 创建 instance 与 Wayland surface（Linux 专用）。
+    /// 创建 instance 与平台 surface（Windows: Win32；Linux: Wayland）。
     pub fn init(native: Types.NativeWindow, enable_validation: bool) !Instance {
-        const wayland = switch (native) {
-            .wayland => |handles| handles,
+        // 先确认窗口类型，再决定要启用哪个 surface 扩展。
+        const surface_extension: [:0]const u8 = switch (native) {
+            // vulkan-zig 把扩展名拆成 khr_win_32_surface，别依赖这个拼写，直接写字面量。
+            .win32 => "VK_KHR_win32_surface",
+            .wayland => vk.instance_extensions.khr_wayland_surface.name,
             else => return error.UnsupportedNativeWindow,
         };
 
-        var lib = try std.DynLib.open("libvulkan.so.1");
+        var lib = try Loader.openZ(loader_name);
         errdefer lib.close();
 
         const get_proc_addr = lib.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse
@@ -54,7 +95,7 @@ pub const Instance = struct {
         var extension_count: usize = 0;
         extension_names[extension_count] = vk.instance_extensions.khr_surface.name.ptr;
         extension_count += 1;
-        extension_names[extension_count] = vk.instance_extensions.khr_wayland_surface.name.ptr;
+        extension_names[extension_count] = surface_extension.ptr;
         extension_count += 1;
         if (debug_utils) {
             extension_names[extension_count] = vk.instance_extensions.ext_debug_utils.name.ptr;
@@ -87,11 +128,23 @@ pub const Instance = struct {
         const wrapper = vk.InstanceWrapper.load(handle, get_proc_addr);
         errdefer wrapper.destroyInstance(handle, null);
 
-        const surface_info = vk.WaylandSurfaceCreateInfoKHR{
-            .display = @ptrCast(wayland.display),
-            .surface = @ptrCast(wayland.surface),
+        const surface = switch (native) {
+            .win32 => |handles| blk: {
+                const surface_info = vk.Win32SurfaceCreateInfoKHR{
+                    .hinstance = @ptrCast(handles.hinstance),
+                    .hwnd = @ptrCast(handles.hwnd),
+                };
+                break :blk try wrapper.createWin32SurfaceKHR(handle, &surface_info, null);
+            },
+            .wayland => |handles| blk: {
+                const surface_info = vk.WaylandSurfaceCreateInfoKHR{
+                    .display = @ptrCast(handles.display),
+                    .surface = @ptrCast(handles.surface),
+                };
+                break :blk try wrapper.createWaylandSurfaceKHR(handle, &surface_info, null);
+            },
+            else => unreachable,
         };
-        const surface = try wrapper.createWaylandSurfaceKHR(handle, &surface_info, null);
         errdefer wrapper.destroySurfaceKHR(handle, surface, null);
 
         var debug_messenger: ?vk.DebugUtilsMessengerEXT = null;

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ShadeFlow 分两半：`ShadeFlowNative/`（Zig 图形引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
-Windows 走 Direct3D 11（计划迁 D3D12），Linux 走 Vulkan（当前是骨架）。
+Windows 默认 Direct3D 11（计划迁 D3D12），可用 `-Dbackend=vulkan` 切到 Vulkan；Linux 走 Vulkan。
 根 `Readme.md` 的结构图已部分过时（没有 `engine/core/`）；以代码为准。
 
 ## 命令（都在 `ShadeFlowNative/` 下执行）
@@ -9,7 +9,6 @@ Windows 走 Direct3D 11（计划迁 D3D12），Linux 走 Vulkan（当前是骨�
 - `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。**仓库没有配置任何测试步骤**，改完靠构建 + 跑起来验证。
 - `zig build run` —— 跑独立窗口 demo（窗口/输入改动的常规验证方式）。
 - `zig build dll` —— **仅 Windows**：额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
-- `zig build typecheck-linux` —— 从任意主机只分析 `src/engine/render/`（含 Vulkan 骨架），只出 object、不链接，所以本机不需要 wayland-client / Vulkan SDK。完整 Linux 构建请在 Linux 上 `zig build`。
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
 - 着色器工具链注意：D3D12 落地时 `compile_shaders.bat` 要从 `fxc` 换到 `dxc` + SM 6.x；fxc 产出的 vs_5_0 二进制 D3D12 不认。
@@ -21,22 +20,22 @@ Windows 走 Direct3D 11（计划迁 D3D12），Linux 走 Vulkan（当前是骨�
 ```
 src/engine/render/
   Renderer.zig        ← 门面：pub const Renderer = backend.Renderer（类型别名）
-  Types.zig           ← 后端中立的描述类型 + NativeWindow union
-  root.zig            ← 只给 typecheck-linux 用的独立入口
+  Types.zig           ← 后端中立的描述类型 + NativeWindow union（独立模块 `render_types`）
   backend/
-    mod.zig           ← 按 builtin.os.tag 编译期选后端 + 契约方法检查
-    d3d11/            ← Windows
-    vulkan/           ← Linux（骨架：initForHwnd 返回 BackendNotImplemented）
+    mod.zig           ← 转发 build.zig 选定的 `render_backend` + 契约方法检查
+    d3d11/            ← Windows（默认；作为独立模块 import win32）
+    vulkan/           ← Windows（`-Dbackend=vulkan`）/ Linux
 ```
 
-- `Engine.zig`、`scene/`、`root.zig`、`optional/Window.zig` **只能** import `render/Renderer.zig` 与 `render/Types.zig`；出现 `backend/d3d11/...` 的 import 就是分层回退。
+- 后端由 `build.zig` 决定：`render_backend` 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`，未选中的后端不进入模块图。`Types.zig` 作为 `render_types` 模块共享，保证跨模块的 `NativeWindow` 等类型是同一份。
+- `Engine.zig`、`scene/`、`root.zig`、`optional/Window.zig` **只能** import `render/Renderer.zig`；出现 `backend/d3d11/...` 的 import 就是分层回退。
 - 新后端必须满足 `backend/mod.zig` 里列出的契约方法（`initForHwnd` / `beginFrame` / `createVertexBuffer` / `drawIndexed` …），缺一个在编译期报错。
-- `Types.NativeWindow` 与 windowkit 的 `NativeHandles` 字段一一对应，但**独立定义**：窗口适配层负责转换，渲染层不依赖 windowkit。这样 Linux 渲染分支可以脱离 wayland 链接项单独 typecheck。
+- `Types.NativeWindow` 与 windowkit 的 `NativeHandles` 字段一一对应，但**独立定义**：窗口适配层负责转换，渲染层不依赖 windowkit。
 - 资源类型通过门面转出（`Renderer.Buffer/Shader/Texture`）；`scene/Object.zig` 不再 import 后端文件。
 - `Renderer` 自己持有常量缓冲区（`setConstants` 懒创建），`Engine` 不再管 `Buffer`。
 - 后端差异备忘：D3D12 的常量缓冲要 256 字节对齐（当前 `Constants` 是 224，迁移时必须 padding）、状态对象要变成 PSO 缓存、Vulkan 需要翻转 Y 轴 / 用 SPIR-V。详见 `backend/vulkan/mod.zig` 顶部注释。
-- Vulkan 当前是 **M1 骨架**：`Instance.zig`（dlopen loader、Wayland surface、校验层/debug utils）与 `Device.zig`（物理设备选择、队列）已完成；`Renderer.zig` 的 `draw`/`setConstants` 是空操作，窗口能开但不画东西。补齐顺序见 `backend/vulkan/Renderer.zig` 顶部注释。
-- Vulkan 用 `dlopen("libvulkan.so.1")`，不在链接期依赖 `libvulkan.so`（发行版可能只装运行时）。
+- Vulkan 的 loader 运行时加载，不在链接期依赖 Vulkan SDK：Windows 走 `LoadLibraryA("vulkan-1.dll")`，Linux 走 `dlopen("libvulkan.so.1")`。surface 分别是 `VK_KHR_win32_surface` / `VK_KHR_wayland_surface`。
+- Vulkan 着色器统一用 `glslc` 编 SPIR-V（`zig build shaders`，已挂进 install）。查找顺序：`-Dglslc=<path>` → PATH → `%VULKAN_SDK%`。
 
 ## ABI / 两模式边界
 

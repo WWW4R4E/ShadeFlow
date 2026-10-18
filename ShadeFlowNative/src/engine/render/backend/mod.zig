@@ -1,34 +1,30 @@
-//! 渲染后端编译期选择。
+//! 渲染后端入口。
 //!
-//! 与 windowkit 的 `platform/mod.zig` 同构：按 `builtin.os.tag` 精确选出一个
-//! 后端命名空间，所有调用点直接绑定到它的具体类型。刻意不做运行时 vtable：
+//! 具体后端由 `build.zig` 在编译期选定：它把 `render_backend` 这个 import
+//! 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`。
 //!
-//! - 后端只有 2~3 个，类型擦除换不来什么；
-//! - 运行时多态会让「后端 A 能编译、后端 B 不能」的问题拖到链接/运行期；
-//! - 换 API 的主要成本在 `Engine`/`scene` 是否泄漏后端类型，而不在分派方式。
+//! - Windows 默认 `d3d11`，`-Dbackend=vulkan` 时换成 `vulkan`；
+//! - Linux 固定 `vulkan`。
 //!
-//! 目标平台 → 后端：
-//! - Windows：`d3d11`（`d3d12` 落地后在这里切换）
-//! - Linux：  `vulkan`
-//!
-//! 新增后端时只需实现 `contract.zig` 里列出的方法，`Engine` / `scene` 不改。
+//! 未选中的后端不会进入任何模块的 import 表，所以既不会被分析，也不会触发
+//! vulkan-zig 生成绑定。这里只做转发和契约检查。
 
-const std = @import("std");
 const builtin = @import("builtin");
 
-const Types = @import("../Types.zig");
+const Types = @import("render_types");
+const impl = @import("render_backend");
 
 /// 原生窗口句柄。定义在 `Types.zig`，渲染层不依赖 windowkit。
 pub const NativeWindow = Types.NativeWindow;
 
-const impl = switch (builtin.os.tag) {
-    .windows => @import("d3d11/mod.zig"),
-    .linux => @import("vulkan/mod.zig"),
-    else => @compileError("不支持的渲染目标平台: " ++ @tagName(builtin.os.tag) ++ "（目前只有 Windows/D3D11 与 Linux/Vulkan）"),
-};
-
 pub const Renderer = impl.Renderer;
 pub const capabilities = impl.capabilities;
+
+pub const Kind = Types.BackendKind;
+pub const kind = impl.kind;
+
+pub const ShaderFormat = Types.ShaderFormat;
+pub const shader_format = impl.shader_format;
 
 pub const is_windows = builtin.os.tag == .windows;
 pub const is_linux = builtin.os.tag == .linux;
