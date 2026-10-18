@@ -9,8 +9,8 @@
             .hash = "win32-25.0.28-preview-mX5pFWMt5QPTVIGh3r2-OpPunpcCCjApyRbA6Zn6WALH",
         },
         .windowkit = .{
-            .url = "git+https://github.com/WWW4R4E/windowkit.git?ref=main#0f81527de0ba793157ba431bf8cd077f261aa29c",
-            .hash = "windowkit-0.1.0-SOPIPPuvCQDMCmkFXNxI4XaoHCuwU4v1gfrO7ujpAcNP",
+            .url = "git+https://github.com/WWW4R4E/windowkit?ref=main#09317a5d15e757806d53a2f361fd30e3229aac50",
+            .hash = "windowkit-0.1.0-SOPIPPuvCQA4lNUzKhgo4HFkvHovXSpwTHFNaYwU14vf",
         },
         .vulkan = .{
             .url = "https://codeload.github.com/Snektron/vulkan-zig/tar.gz/1fa628fd49d89468241c2cab14bad41a312e79fc",
