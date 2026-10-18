@@ -9,6 +9,9 @@
 //! - `zig build run`         运行当前目标的 exe
 //! - `zig build dll`         （仅 Windows）构建并复制 `ShadeFlowNative.dll` 到 UI 项目
 //! - `zig build typecheck-linux`  从任意主机分析 Linux 分支（只出 object，不链接）
+//! - `zig build shaders`     （仅非 Windows）GLSL → SPIR-V，已挂进 install 步骤
+//!
+//! Linux 上编译着色器需要系统装有 `glslc`（Vulkan SDK 或 shaderc）。
 
 const std = @import("std");
 
@@ -107,6 +110,31 @@ pub fn build(b: *std.Build) void {
         "Analyze the Linux/Vulkan branch from any host (object only, no linking)",
     );
     typecheck_linux.dependOn(&linux_obj.step);
+
+    // GLSL → SPIR-V：Vulkan 后端的着色器。
+    //
+    // Windows 走 compile_shaders.bat + fxc 产出 .cso，所以只在非 Windows 目标下
+    // 编译，避免 Windows 开发机被要求装 glslc。产物装到 zig-out/shaders/*.spv，
+    // 与 .cso 同目录，main.zig 按 exe 目录相对定位两者。
+    const shaders_step = b.step("shaders", "Compile GLSL shaders to SPIR-V (Linux/Vulkan)");
+    if (!is_windows) {
+        const glsl_sources = [_]struct { src: []const u8, out: []const u8 }{
+            .{ .src = "assets/shaders/Basic3D.vert", .out = "Basic3D.vert.spv" },
+            .{ .src = "assets/shaders/Basic3D.frag", .out = "Basic3D.frag.spv" },
+        };
+
+        for (glsl_sources) |shader| {
+            const compile = b.addSystemCommand(&.{ "glslc", "--target-env=vulkan1.1", "-O" });
+            compile.addFileArg(b.path(shader.src));
+            compile.addArg("-o");
+            const output = compile.addOutputFileArg(shader.out);
+            // 挂到 install：`run_cmd` 已 dependOn install，这样 `zig build run`
+            // 一定会先把着色器编出来。
+            const install = b.addInstallFile(output, b.fmt("shaders/{s}", .{shader.out}));
+            b.getInstallStep().dependOn(&install.step);
+            shaders_step.dependOn(&install.step);
+        }
+    }
 }
 
 /// 按目标组装引擎模块。

@@ -46,18 +46,18 @@ pub const Instance = struct {
 
         const debug_utils = validation and try hasInstanceExtension(
             base,
-            vk.ApiInfo.ext_debug_utils.name,
+            vk.instance_extensions.ext_debug_utils.name,
             allocator,
         );
 
         var extension_names: [3][*:0]const u8 = undefined;
         var extension_count: usize = 0;
-        extension_names[extension_count] = vk.ApiInfo.khr_surface.name.ptr;
+        extension_names[extension_count] = vk.instance_extensions.khr_surface.name.ptr;
         extension_count += 1;
-        extension_names[extension_count] = vk.ApiInfo.khr_wayland_surface.name.ptr;
+        extension_names[extension_count] = vk.instance_extensions.khr_wayland_surface.name.ptr;
         extension_count += 1;
         if (debug_utils) {
-            extension_names[extension_count] = vk.ApiInfo.ext_debug_utils.name.ptr;
+            extension_names[extension_count] = vk.instance_extensions.ext_debug_utils.name.ptr;
             extension_count += 1;
         }
 
@@ -66,11 +66,11 @@ pub const Instance = struct {
 
         const app_info = vk.ApplicationInfo{
             .p_application_name = "ShadeFlow",
-            .application_version = vk.makeApiVersion(0, 1, 0, 0),
+            .application_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
             .p_engine_name = "ShadeFlowNative",
-            .engine_version = vk.makeApiVersion(0, 1, 0, 0),
+            .engine_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
             // 1.1：负高度 viewport（Y 翻转）在 1.1 起是核心能力。
-            .api_version = vk.makeApiVersion(0, 1, 1, 0),
+            .api_version = vk.makeApiVersion(0, 1, 1, 0).toU32(),
         };
 
         const create_info = vk.InstanceCreateInfo{
@@ -82,9 +82,10 @@ pub const Instance = struct {
         };
 
         const handle = try base.createInstance(&create_info, null);
-        errdefer base.destroyInstance(handle, null);
-
+        // 这版 vulkan-zig 的 destroyInstance 在 InstanceWrapper 上，BaseWrapper 没有，
+        // 所以 errdefer 必须排在 wrapper 创建之后。
         const wrapper = vk.InstanceWrapper.load(handle, get_proc_addr);
+        errdefer wrapper.destroyInstance(handle, null);
 
         const surface_info = vk.WaylandSurfaceCreateInfoKHR{
             .display = @ptrCast(wayland.display),

@@ -1,39 +1,35 @@
-//! Vulkan 后端（Linux / Wayland）—— 当前为 M1 骨架。
+//! Vulkan 渲染后端（Linux / Wayland）。
 //!
-//! 已完成：
-//! - dlopen `libvulkan.so.1` + `vkGetInstanceProcAddr`
-//! - VkInstance（Wayland surface + 可选校验层 / debug utils）
-//! - 物理设备选择（graphics + present 队列族、`VK_KHR_swapchain`）
-//! - VkDevice + graphics/present 队列
+//! 帧流程与 D3D11 后端的语义对齐，但 Vulkan 要求 CPU 显式管同步：
 //!
-//! 尚未实现（下一步按 M1 顺序补）：
-//! - SwapChain.zig / Sync.zig：交换链、帧同步
-//! - Pipeline.zig / Shader.zig：SPIR-V、render pass、PSO
-//! - Buffer.zig / Descriptor.zig：顶点/索引/UBO
+//! ```text
+//! beginFrame:  等本帧栅栏 → acquire 图像 → 录命令 → clear + 渲染通道开始
+//! setConstants: 写进本帧的常量缓冲环，记下 dynamic offset
+//! draw*:        绑管线/描述符/顶点缓冲 → 录绘制
+//! endFrame:     渲染通道结束 → 提交（等 acquire 信号量、发 present 信号量）
+//!               → present（等 present 信号量）→ 帧号 +1
+//! ```
 //!
-//! 骨架阶段 `draw` / `setConstants` 是空操作：窗口能开、相机/拾取可用，
-//! 但屏幕上不会出现几何体。
+//! Y 轴翻转、绕序、管线状态的后端差异都记在 `Pipeline.zig` 顶部注释里。
 
 const std = @import("std");
 const builtin = @import("builtin");
 
+const vk = @import("vulkan");
+
 const Types = @import("../../Types.zig");
-const Instance = @import("Instance.zig").Instance;
+const BufferImpl = @import("Buffer.zig").Buffer;
+const Descriptor = @import("Descriptor.zig").Descriptor;
 const Device = @import("Device.zig").Device;
+const Instance = @import("Instance.zig").Instance;
+const Pipeline = @import("Pipeline.zig");
+const ShaderImpl = @import("Shader.zig").Shader;
+const SwapChain = @import("SwapChain.zig").SwapChain;
+const Sync = @import("Sync.zig").Sync;
+const frames_in_flight = @import("Sync.zig").frames_in_flight;
 
-/// 占位资源：M1 骨架阶段只保证上层能持有一个对象。
-const BufferImpl = struct {
-    pub fn deinit(self: *BufferImpl) void {
-        _ = self;
-    }
-};
-
-const ShaderImpl = struct {
-    pub fn deinit(self: *ShaderImpl) void {
-        _ = self;
-    }
-};
-
+/// 纹理还没有 Vulkan 实现（深度图在 `SwapChain` 里）。保留占位类型是为了不
+/// 让 `render/Renderer.zig` 的门面在两个后端之间出现签名差异。
 const TextureImpl = struct {
     pub fn deinit(self: *TextureImpl) void {
         _ = self;
@@ -47,67 +43,231 @@ pub const Renderer = struct {
 
     instance: Instance,
     device: Device,
+    swap_chain: SwapChain,
+    sync: Sync,
+    /// 常量缓冲 + 描述符。布局在 init 就建好（着色器要用 pipeline layout），
+    /// 环形缓冲在第一次 `setConstants` 按数据大小建。
+    descriptor: Descriptor,
+
     width: u32,
     height: u32,
 
-    // 管线状态先存起来，等 Pipeline.zig 落地后直接用。
+    frame_index: u32 = 0,
+    image_index: u32 = 0,
+    /// 本帧是否成功开始。`beginFrame` 契约上返回 void，acquire 失败时置 false，
+    /// 后续 draw / endFrame 直接跳过，避免往无效命令缓冲里录命令。
+    frame_active: bool = false,
+    /// 本帧常量数据在环形缓冲里的偏移（dynamic offset）。
+    constants_offset: vk.DeviceSize = 0,
+
+    // 当前管线状态。D3D11 是独立对象，Vulkan 转成 PSO 缓存键。
     topology: Types.Topology = .triangle_list,
     raster_state: Types.RasterState = .{ .fill = .solid, .cull = .none },
     depth_state: Types.DepthState = .{},
     blend_mode: Types.BlendMode = .none,
 
+    // =========================================================================
+    // 初始化
+    // =========================================================================
+
+    /// WinUI 3 Composition 模式：Vulkan 后端不支持（见 `mod.zig` 的能力说明）。
     pub fn initForComposition(width: u32, height: u32) !Renderer {
         _ = width;
         _ = height;
         return error.CompositionNotSupported;
     }
 
+    /// 独立窗口模式（原生句柄来自 `optional/Window.zig`）。
     pub fn initForHwnd(native: Types.NativeWindow, width: u32, height: u32) !Renderer {
-        var instance = try Instance.init(native, builtin.mode == .Debug);
+        var instance = try Instance.init(native, builtin.mode == .debug);
         errdefer instance.deinit();
 
         var device = try Device.init(&instance);
         errdefer device.deinit();
 
-        std.log.info(
-            "Vulkan 后端骨架就绪（{d}x{d}）：instance/device/surface 已创建，绘制管线尚未实现",
-            .{ width, height },
-        );
+        const context = SwapChain.Context{
+            .shared = device.shared,
+            .physical_device = device.physical_device,
+            .instance = &instance,
+        };
+
+        var swap_chain = try SwapChain.init(context, width, height);
+        errdefer swap_chain.deinit();
+
+        var sync = try Sync.init(device.shared);
+        errdefer sync.deinit();
+        try sync.resizeImageFences(swap_chain.imageCount());
+
+        var descriptor = try Descriptor.init(device.shared, device.minUniformBufferOffsetAlignment());
+        errdefer descriptor.deinit();
+
+        std.log.info("Vulkan 渲染管线就绪（{d}x{d}）", .{ swap_chain.extent.width, swap_chain.extent.height });
 
         return .{
             .instance = instance,
             .device = device,
+            .swap_chain = swap_chain,
+            .sync = sync,
+            .descriptor = descriptor,
             .width = width,
             .height = height,
         };
     }
 
     pub fn deinit(self: *Renderer) void {
-        self.device.deinit();
+        self.device.shared.wrapper.deviceWaitIdle(self.device.shared.device) catch {};
+
+        self.descriptor.deinit();
+        self.sync.deinit();
+        self.swap_chain.deinit();
         self.instance.deinit();
+        self.device.deinit();
     }
 
+    // =========================================================================
+    // 帧
+    // =========================================================================
+
     pub fn beginFrame(self: *Renderer, clear_color: Types.ClearColor) void {
-        _ = self;
-        _ = clear_color;
+        self.frame_active = false;
+        self.beginFrameInner(clear_color) catch |err| {
+            std.log.err("开始 Vulkan 帧失败: {s}", .{@errorName(err)});
+        };
+    }
+
+    fn beginFrameInner(self: *Renderer, clear_color: Types.ClearColor) !void {
+        const shared = self.device.shared;
+        const w = &shared.wrapper;
+        const frame = self.frame_index % frames_in_flight;
+
+        try self.sync.waitFrame(frame);
+        try self.descriptor.beginFrame(frame);
+
+        const acquire = w.acquireNextImageKHR(
+            shared.device,
+            self.swap_chain.handle,
+            std.math.maxInt(u64),
+            self.sync.image_available[frame],
+            .null,
+        ) catch |err| switch (err) {
+            // 窗口被缩放/遮挡，交换链失效：重建后跳过这一帧，下一帧自然恢复。
+            error.OutOfDateKHR => {
+                try self.recreateSwapChain();
+                return;
+            },
+            else => return err,
+        };
+        self.image_index = acquire.image_index;
+
+        // acquire 可能返回一张上一轮还在飞的图像，等它的栅栏。
+        if (self.image_index < self.sync.image_in_flight.len) {
+            const pending = self.sync.image_in_flight[self.image_index];
+            if (pending != .null) {
+                _ = try w.waitForFences(shared.device, &.{pending}, .true, std.math.maxInt(u64));
+            }
+            self.sync.image_in_flight[self.image_index] = self.sync.in_flight[frame];
+        }
+
+        const cmd = self.sync.commandBuffer(frame);
+        // 等价于 reset + begin：命令池带 RESET_COMMAND_BUFFER。
+        try w.beginCommandBuffer(cmd, &.{});
+
+        const clear_values = [_]vk.ClearValue{
+            .{ .color = .{ .float_32 = clear_color } },
+            .{ .depth_stencil = .{ .depth = 1.0, .stencil = 0 } },
+        };
+        w.cmdBeginRenderPass(cmd, &.{
+            .render_pass = self.swap_chain.render_pass,
+            .framebuffer = self.swap_chain.framebuffer(self.image_index),
+            .render_area = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = self.swap_chain.extent,
+            },
+            .clear_value_count = clear_values.len,
+            .p_clear_values = &clear_values,
+        }, .@"inline");
+
+        self.applyViewportAndScissor(cmd);
+        self.frame_active = true;
     }
 
     pub fn endFrame(self: *Renderer) void {
-        _ = self;
+        self.endFrameInner() catch |err| {
+            std.log.err("结束 Vulkan 帧失败: {s}", .{@errorName(err)});
+        };
+        self.frame_active = false;
+    }
+
+    fn endFrameInner(self: *Renderer) !void {
+        if (!self.frame_active) return;
+
+        const shared = self.device.shared;
+        const w = &shared.wrapper;
+        const frame = self.frame_index % frames_in_flight;
+        const cmd = self.sync.commandBuffer(frame);
+
+        w.cmdEndRenderPass(cmd);
+        try w.endCommandBuffer(cmd);
+
+        const submit_wait_stages = [_]vk.PipelineStageFlags{.{ .color_attachment_output = true }};
+        const acquire_semaphore = [_]vk.Semaphore{self.sync.image_available[frame]};
+        const present_semaphore = [_]vk.Semaphore{self.sync.render_finished[frame]};
+        const cmds = [_]vk.CommandBuffer{cmd};
+
+        // 复位必须紧贴提交：跳帧路径（acquire 失败）不会走到这里，被复位的
+        // 栅栏若无人 signal，下次等到同一帧就永久阻塞。详见 `Sync.waitFrame`。
+        try self.sync.resetForSubmit(frame);
+
+        try w.queueSubmit(shared.graphics_queue, &[_]vk.SubmitInfo{.{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = &acquire_semaphore,
+            .p_wait_dst_stage_mask = &submit_wait_stages,
+            .command_buffer_count = 1,
+            .p_command_buffers = &cmds,
+            .signal_semaphore_count = 1,
+            .p_signal_semaphores = &present_semaphore,
+        }}, self.sync.in_flight[frame]);
+
+        const swapchains = [_]vk.SwapchainKHR{self.swap_chain.handle};
+        const image_indices = [_]u32{self.image_index};
+
+        _ = w.queuePresentKHR(shared.present_queue, &.{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = &present_semaphore,
+            .swapchain_count = 1,
+            .p_swapchains = &swapchains,
+            .p_image_indices = &image_indices,
+        }) catch |err| switch (err) {
+            // 与 acquire 同理：交换链失效就重建，不影响下一帧。
+            error.OutOfDateKHR => {
+                try self.recreateSwapChain();
+                self.frame_index += 1;
+                return;
+            },
+            else => return err,
+        };
+
+        self.frame_index += 1;
     }
 
     pub fn resize(self: *Renderer, width: u32, height: u32) !void {
+        // 窗口最小化时尺寸为 0，交换链建不出来；等恢复成非 0 再重建。
+        if (width == 0 or height == 0) return;
+
         self.width = width;
         self.height = height;
+        try self.recreateSwapChain();
     }
 
+    /// WinUI 侧 `ISwapChainPanelNative::SetSwapChain` 用的裸指针。
+    /// Vulkan 不参与 Composition 模式，恒为 null。
     pub fn swapChainInteropHandle(self: *Renderer) ?*anyopaque {
         _ = self;
         return null;
     }
 
     // =========================================================================
-    // 资源（骨架：占位）
+    // 资源工厂
     // =========================================================================
 
     pub fn createVertexBuffer(
@@ -116,17 +276,11 @@ pub const Renderer = struct {
         stride: u32,
         usage: Types.BufferUsage,
     ) !Buffer {
-        _ = self;
-        _ = data;
-        _ = stride;
-        _ = usage;
-        return .{};
+        return Buffer.createVertexBuffer(self.device.shared, data, stride, usage);
     }
 
     pub fn createIndexBuffer(self: *Renderer, indices: []const u16) !Buffer {
-        _ = self;
-        _ = indices;
-        return .{};
+        return Buffer.createIndexBuffer(self.device.shared, indices);
     }
 
     pub fn createShaderFromFiles(
@@ -135,20 +289,32 @@ pub const Renderer = struct {
         pixel_path: []const u8,
         layout: Types.VertexLayout,
     ) !Shader {
-        _ = self;
-        _ = vertex_path;
-        _ = pixel_path;
-        _ = layout;
-        return .{};
+        return Shader.loadProgram(
+            .{
+                .shared = self.device.shared,
+                .pipeline_layout = self.descriptor.pipeline_layout,
+                .render_pass = self.swap_chain.render_pass,
+            },
+            vertex_path,
+            pixel_path,
+            layout,
+        );
     }
 
+    /// 每帧更新常量数据；环形缓冲在首次调用时按数据大小创建。
+    ///
+    /// 之所以按帧分槽而不是所有 draw 共用一块：命令缓冲是录完再提交的，
+    /// 共用一块会让后一个对象的变换覆盖前一个。详见 `Descriptor.zig`。
     pub fn setConstants(self: *Renderer, data: []const u8) !void {
-        _ = self;
-        _ = data;
+        const frame = self.frame_index % frames_in_flight;
+        self.constants_offset = try self.descriptor.writeConstants(frame, data);
     }
 
     // =========================================================================
     // 状态
+    //
+    // 这里只记录状态；Vulkan 的 PSO 要把状态烤进去，所以真正的管线在 draw 时
+    // 按需创建并缓存（见 `Shader.getPipeline`），切状态本身不会失败。
     // =========================================================================
 
     pub fn setTopology(self: *Renderer, topology: Types.Topology) void {
@@ -168,14 +334,13 @@ pub const Renderer = struct {
     }
 
     // =========================================================================
-    // 绘制（骨架：空操作）
+    // 绘制
     // =========================================================================
 
     pub fn draw(self: *Renderer, shader: *const Shader, vertex_buffer: *const Buffer, vertex_count: u32) void {
-        _ = self;
-        _ = shader;
-        _ = vertex_buffer;
-        _ = vertex_count;
+        self.drawInner(shader, vertex_buffer, null, vertex_count) catch |err| {
+            std.log.err("Vulkan draw 失败: {s}", .{@errorName(err)});
+        };
     }
 
     pub fn drawIndexed(
@@ -185,10 +350,80 @@ pub const Renderer = struct {
         index_buffer: *const Buffer,
         index_count: u32,
     ) void {
-        _ = self;
-        _ = shader;
-        _ = vertex_buffer;
-        _ = index_buffer;
-        _ = index_count;
+        self.drawInner(shader, vertex_buffer, index_buffer, index_count) catch |err| {
+            std.log.err("Vulkan drawIndexed 失败: {s}", .{@errorName(err)});
+        };
+    }
+
+    fn drawInner(
+        self: *Renderer,
+        shader: *const Shader,
+        vertex_buffer: *const Buffer,
+        index_buffer: ?*const Buffer,
+        count: u32,
+    ) !void {
+        if (!self.frame_active) return;
+        const descriptor = &self.descriptor;
+
+        const shared = self.device.shared;
+        const w = &shared.wrapper;
+        const cmd = self.sync.commandBuffer(self.frame_index % frames_in_flight);
+
+        // `getPipeline` 会往 PSO 缓存里写；契约给的是 `*const Shader`（与
+        // D3D11 一致），这里去一次 const——缓存变化不影响对象语义。
+        const mutable_shader: *Shader = @constCast(shader);
+        const pipeline = try mutable_shader.getPipeline(.{
+            .topology = self.topology,
+            .raster = self.raster_state,
+            .depth = self.depth_state,
+            .blend = self.blend_mode,
+        });
+
+        w.cmdBindPipeline(cmd, .graphics, pipeline);
+
+        const sets = [_]vk.DescriptorSet{descriptor.currentSet(self.frame_index % frames_in_flight)};
+        const dynamic_offsets = [_]u32{@intCast(self.constants_offset)};
+        w.cmdBindDescriptorSets(cmd, .graphics, descriptor.pipeline_layout, 0, &sets, &dynamic_offsets);
+
+        vertex_buffer.bindVertexBuffer(cmd, 0);
+
+        if (index_buffer) |ib| {
+            ib.bindIndexBuffer(cmd, .uint16);
+            w.cmdDrawIndexed(cmd, count, 1, 0, 0, 0);
+        } else {
+            w.cmdDraw(cmd, count, 1, 0, 0);
+        }
+    }
+
+    // =========================================================================
+    // 内部
+    // =========================================================================
+
+    fn recreateSwapChain(self: *Renderer) !void {
+        const context = SwapChain.Context{
+            .shared = self.device.shared,
+            .physical_device = self.device.physical_device,
+            .instance = &self.instance,
+        };
+        try self.swap_chain.recreate(context, self.width, self.height);
+        try self.sync.resizeImageFences(self.swap_chain.imageCount());
+    }
+
+    /// 负高度 viewport：把 NDC 的 +Y 映射到屏幕顶部，与 D3D 的视口变换一致，
+    /// 相机/矩阵代码因此不需要为 Vulkan 单独改。详见 `Pipeline.zig`。
+    fn applyViewportAndScissor(self: *Renderer, cmd: vk.CommandBuffer) void {
+        const w = &self.device.shared.wrapper;
+        const height: f32 = @floatFromInt(self.swap_chain.extent.height);
+        const width: f32 = @floatFromInt(self.swap_chain.extent.width);
+
+        const viewports = [_]vk.Viewport{
+            .{ .x = 0.0, .y = height, .width = width, .height = -height, .min_depth = 0.0, .max_depth = 1.0 },
+        };
+        w.cmdSetViewport(cmd, 0, &viewports);
+
+        const scissors = [_]vk.Rect2D{
+            .{ .offset = .{ .x = 0, .y = 0 }, .extent = self.swap_chain.extent },
+        };
+        w.cmdSetScissor(cmd, 0, &scissors);
     }
 };

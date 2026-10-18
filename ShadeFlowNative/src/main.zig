@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Io = std.Io;
 
 const Engine = @import("ShadeFlowNative").Engine;
@@ -31,14 +32,20 @@ pub fn main() !void {
     defer allocator.free(exe_path);
     const app_dir = std.fs.path.dirname(exe_path).?;
 
-    const vs_path = try std.fmt.allocPrint(allocator, "{s}\\..\\shaders\\Basic3DVS.cso", .{app_dir});
+    // 着色器按 exe 目录相对定位（zig-out/bin/../shaders/，与 compile_shaders.bat
+    // 和 build.zig 的安装位置一致）。两边都用 fs.path.join，不再写死 `\\`。
+    // Windows 是 fxc 产的 .cso，Linux 是 glslc 产的 .spv。
+    const vs_name = if (builtin.os.tag == .windows) "Basic3DVS.cso" else "Basic3D.vert.spv";
+    const ps_name = if (builtin.os.tag == .windows) "Basic3DPS.cso" else "Basic3D.frag.spv";
+
+    const vs_path = try std.fs.path.join(allocator, &.{ app_dir, "..", "shaders", vs_name });
     defer allocator.free(vs_path);
 
     const vs_path_cstr = try allocator.allocSentinel(u8, vs_path.len, 0);
     @memcpy(vs_path_cstr, vs_path);
     defer allocator.free(vs_path_cstr);
 
-    const ps_path = try std.fmt.allocPrint(allocator, "{s}\\..\\shaders\\Basic3DPS.cso", .{app_dir});
+    const ps_path = try std.fs.path.join(allocator, &.{ app_dir, "..", "shaders", ps_name });
     defer allocator.free(ps_path);
 
     const ps_path_cstr = try allocator.allocSentinel(u8, ps_path.len, 0);

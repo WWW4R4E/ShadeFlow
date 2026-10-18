@@ -49,11 +49,12 @@ pub const Window = struct {
 
         const options: windowkit.WindowOptions = .{
             .title = "ShadeFlow",
-            .width = 1600,
-            .height = 900,
+            .width = 900,
+            .height = 600,
             .centered = true,
             .file_drop = true,
-            .min_size = .{ .width = 320, .height = 240 },
+            // .min_size = .{ .width = 700, .height = 600 },
+            .max_size = .{ .width = 1600, .height = 900 },
         };
 
         self.win = try windowkit.PlatformWindow.init(allocator, &self.plat, &options);
@@ -152,8 +153,13 @@ pub const Window = struct {
 
     fn resizeTrampoline(win: *windowkit.PlatformWindow, width: f64, height: f64) void {
         const self = win.getUserData(Window) orelse return;
-        _ = width;
-        _ = height;
+        // windowkit 传的是逻辑像素，这里只做诊断；引擎侧统一用
+        // `getClientSize()`（物理像素）重建交换链，两者都打出来方便对照。
+        const fb = win.framebufferSize();
+        std.log.info(
+            "窗口尺寸变化：逻辑 {d:.0}x{d:.0}，物理 {d}x{d}（scale {d:.2}）",
+            .{ width, height, fb.width_px, fb.height_px, win.getScaleFactor() },
+        );
         self.size_changed = true;
     }
 
