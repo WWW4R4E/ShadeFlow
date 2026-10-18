@@ -22,6 +22,7 @@ ShadeFlow/
 │   │   ├── main.zig          # 独立运行入口
 │   │   └── root.zig          # 跨平台引擎入口（exe 与其它 Zig 使用方）
 │   ├── assets/shaders/       # HLSL 源码
+│   ├── vendor/vk.xml         # Vulkan registry（构建期生成绑定）
 │   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）
 │   └── build.zig             # Zig 构建配置
 ├── ShadeFlowUI/              # WinUI 3 界面项目
@@ -64,7 +65,8 @@ ShadeFlow/
 
 ### 环境要求
 - Zig 编译器 (0.17.0)
-- Windows 10/11 SDK（D3D11 后端）；Linux 侧需要 `wayland-client`，Vulkan 后端落地后还需要 Vulkan SDK
+- Windows 10/11 SDK（D3D11 后端）
+- Linux：Wayland + `libvulkan.so.1`（运行时加载器）；构建期不需要 Vulkan SDK，绑定由 `vendor/vk.xml` 生成
 
 ### 构建 Zig 引擎
 ```bash

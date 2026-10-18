@@ -22,9 +22,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     }).module("windowkit");
     const win32 = b.dependency("win32", .{}).module("win32");
+    // vulkan-zig 在构建期用 vendor/vk.xml 生成绑定；生成器按宿主平台构建，
+    // 生成的声明与目标平台无关，所以交叉 typecheck 也能复用。
+    const vulkan = b.dependency("vulkan", .{
+        .registry = b.path("vendor/vk.xml"),
+        .optimize = optimize,
+    }).module("vulkan-zig");
 
     // 跨平台引擎模块（exe 用）。Linux 分支不引入 win32。
-    const engine_mod = createEngineModule(b, target, optimize, windowkit, win32, is_windows);
+    const engine_mod = createEngineModule(b, target, optimize, windowkit, win32, vulkan, is_windows);
 
     // 构建 EXE（默认）
     const exe = b.addExecutable(.{
@@ -87,6 +93,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/engine/render/root.zig"),
         .target = linux_target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "vulkan", .module = vulkan },
+        },
     });
     const linux_obj = b.addObject(.{
         .name = "typecheck-linux",
@@ -110,6 +119,7 @@ fn createEngineModule(
     optimize: std.builtin.OptimizeMode,
     windowkit: *std.Build.Module,
     win32: *std.Build.Module,
+    vulkan: *std.Build.Module,
     with_win32: bool,
 ) *std.Build.Module {
     const imports: []const std.Build.Module.Import = if (with_win32)
@@ -120,6 +130,7 @@ fn createEngineModule(
     else
         &.{
             .{ .name = "windowkit", .module = windowkit },
+            .{ .name = "vulkan", .module = vulkan },
         };
 
     return b.createModule(.{

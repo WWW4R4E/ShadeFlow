@@ -13,7 +13,8 @@ Windows 走 Direct3D 11（计划迁 D3D12），Linux 走 Vulkan（当前是骨�
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
 - 着色器工具链注意：D3D12 落地时 `compile_shaders.bat` 要从 `fxc` 换到 `dxc` + SM 6.x；fxc 产出的 vs_5_0 二进制 D3D12 不认。
-- 依赖（`win32`、`windowkit`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
+- 依赖（`win32`、`windowkit`、`vulkan`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
+- Vulkan 绑定：`vulkan-zig`（钉在 `zig-0.17-compat` 的 commit，用 codeload tarball URL）。它需要 `vendor/vk.xml`（3.3MB，来自 Vulkan-Headers `registry/vk.xml`）在构建期生成 `vk.zig`。升级 Zig 时要同步换 compat 分支，否则会撞 `standardOptimizeOption` 之类的 API 变化。
 
 ## 渲染后端分层（重要）
 
@@ -34,6 +35,8 @@ src/engine/render/
 - 资源类型通过门面转出（`Renderer.Buffer/Shader/Texture`）；`scene/Object.zig` 不再 import 后端文件。
 - `Renderer` 自己持有常量缓冲区（`setConstants` 懒创建），`Engine` 不再管 `Buffer`。
 - 后端差异备忘：D3D12 的常量缓冲要 256 字节对齐（当前 `Constants` 是 224，迁移时必须 padding）、状态对象要变成 PSO 缓存、Vulkan 需要翻转 Y 轴 / 用 SPIR-V。详见 `backend/vulkan/mod.zig` 顶部注释。
+- Vulkan 当前是 **M1 骨架**：`Instance.zig`（dlopen loader、Wayland surface、校验层/debug utils）与 `Device.zig`（物理设备选择、队列）已完成；`Renderer.zig` 的 `draw`/`setConstants` 是空操作，窗口能开但不画东西。补齐顺序见 `backend/vulkan/Renderer.zig` 顶部注释。
+- Vulkan 用 `dlopen("libvulkan.so.1")`，不在链接期依赖 `libvulkan.so`（发行版可能只装运行时）。
 
 ## ABI / 两模式边界
 

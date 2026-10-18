@@ -12,13 +12,15 @@
             .url = "git+https://github.com/WWW4R4E/windowkit.git?ref=main#0f81527de0ba793157ba431bf8cd077f261aa29c",
             .hash = "windowkit-0.1.0-SOPIPPuvCQDMCmkFXNxI4XaoHCuwU4v1gfrO7ujpAcNP",
         },
+        .vulkan = .{
+            .url = "https://codeload.github.com/Snektron/vulkan-zig/tar.gz/1fa628fd49d89468241c2cab14bad41a312e79fc",
+            .hash = "vulkan-0.0.0-r7Ytxy2BAwCPqBJUCXp6XXMwWqFD3DNrMLWWQvRRSXOC",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        // For example...
-        //"LICENSE",
-        //"README.md",
+        "vendor",
     },
 }
