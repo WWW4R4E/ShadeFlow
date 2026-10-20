@@ -4,9 +4,14 @@
     .fingerprint = 0x511092a22984efb3,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
+        // `lazy = true` 的包只有在 build.zig 里真的引用它（`b.lazyDependency`）时才拉取：
+        // win32 只给 Windows 用，vulkan 在 Windows 上只有 `-Dbackend=vulkan` 才用，
+        // 没有这一行，Linux/macOS 的 `zig build run` 也会白拉 zigwin32。
+        // 用法与验证过程见 `笔记/Zig依赖按平台懒加载.md`。
         .win32 = .{
             .url = "git+https://github.com/marlersoft/zigwin32#ec98bb4d9eea532320a8551720a9e3ec6de64994",
             .hash = "win32-25.0.28-preview-mX5pFWMt5QPTVIGh3r2-OpPunpcCCjApyRbA6Zn6WALH",
+            .lazy = true,
         },
         .windowkit = .{
             .url = "git+https://github.com/WWW4R4E/windowkit?ref=main#09317a5d15e757806d53a2f361fd30e3229aac50",
@@ -15,6 +20,7 @@
         .vulkan = .{
             .url = "https://codeload.github.com/Snektron/vulkan-zig/tar.gz/1fa628fd49d89468241c2cab14bad41a312e79fc",
             .hash = "vulkan-0.0.0-r7Ytxy2BAwCPqBJUCXp6XXMwWqFD3DNrMLWWQvRRSXOC",
+            .lazy = true,
         },
     },
     .paths = .{

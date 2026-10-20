@@ -6,8 +6,8 @@
 //! 翻译进 `Input` 状态结构，尺寸变化通过 `size_changed` 标志同步，事件循环
 //! 和帧节拍交给 `plat.run()`。
 //!
-//! 原生句柄原样交给渲染后端（Windows/HWND、Linux/Wayland display+surface），
-//! 本层不解释它们。
+//! 原生句柄原样交给渲染后端（Windows/HWND、Linux/Wayland display+surface、
+//! macOS/AppKit NSWindow+NSView+CAMetalLayer），本层不解释它们。
 //!
 //! Windows 后端契约（见 windowkit README）：
 //! - 消息泵、输入回调、渲染回调全部串行在 UI 线程，无需加锁；
@@ -15,6 +15,7 @@
 //!   每次派发后需要 `requestRender()` 重新预约下一帧（连续渲染模式）。
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const windowkit = @import("windowkit");
 const wkInput = windowkit.input;
@@ -177,12 +178,18 @@ pub const Window = struct {
     /// 后端差异（经验证）：
     /// - Windows：windowkit 直发 `WM_MOUSEMOVE` 的 lParam 客户区坐标，
     ///   PerMonitorV2 下该值就是**物理像素**，不要再乘 scale；
-    /// - 若将来接 macOS/Linux（坐标为逻辑像素），在这里乘 `getScaleFactor()`。
+    /// - macOS：AppKit 的 view 坐标是**逻辑点**（且 `isFlipped` 已把原点翻到
+    ///   左上角），要乘 `backingScaleFactor` 才能和 `framebufferSize()` 对齐；
+    /// - Linux/Wayland：pointer 坐标同样是 surface-local 逻辑坐标，同样乘
+    ///   `scale_factor`。
     fn toEnginePx(self: *Window, x: f64, y: f64) struct { x: i32, y: i32 } {
-        _ = self;
+        const scale: f64 = switch (builtin.os.tag) {
+            .windows => 1.0,
+            else => if (self.win) |win| win.getScaleFactor() else 1.0,
+        };
         return .{
-            .x = @intFromFloat(@round(x)),
-            .y = @intFromFloat(@round(y)),
+            .x = @intFromFloat(@round(x * scale)),
+            .y = @intFromFloat(@round(y * scale)),
         };
     }
 

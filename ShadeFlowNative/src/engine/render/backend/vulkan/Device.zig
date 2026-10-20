@@ -135,7 +135,21 @@ pub const Device = struct {
             queue_info_count = 2;
         }
 
-        const extension_names = [_][*:0]const u8{vk.device_extensions.khr_swapchain.name.ptr};
+        // portability 实现（MoltenVK）会 advertise `VK_KHR_portability_subset`，
+        // 规范要求应用启用它；普通桌面驱动没有这个扩展，跳过即可。
+        var extension_names: [2][*:0]const u8 = undefined;
+        var extension_count: usize = 0;
+        extension_names[extension_count] = vk.device_extensions.khr_swapchain.name.ptr;
+        extension_count += 1;
+        if (try hasDeviceExtension(
+            instance,
+            selected.physical_device,
+            vk.device_extensions.khr_portability_subset.name,
+            allocator,
+        )) {
+            extension_names[extension_count] = vk.device_extensions.khr_portability_subset.name.ptr;
+            extension_count += 1;
+        }
 
         // 线框模式（Types.FillMode.wireframe）要这个特性；设备不支持就退回实心。
         const features = instance.wrapper.getPhysicalDeviceFeatures(selected.physical_device);
@@ -147,7 +161,7 @@ pub const Device = struct {
         const create_info = vk.DeviceCreateInfo{
             .queue_create_info_count = queue_info_count,
             .p_queue_create_infos = &queue_infos,
-            .enabled_extension_count = 1,
+            .enabled_extension_count = @intCast(extension_count),
             .pp_enabled_extension_names = &extension_names,
             .p_enabled_features = &enabled_features,
         };

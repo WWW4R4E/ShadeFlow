@@ -46,14 +46,14 @@ pub fn main() !void {
         .spirv => "Basic3DPS.spv",
     };
 
-    const vs_path = try std.fs.path.join(allocator, &.{ app_dir, "..", "shaders", vs_name });
+    const vs_path = try resolveShaderPath(allocator, io, app_dir, vs_name);
     defer allocator.free(vs_path);
 
     const vs_path_cstr = try allocator.allocSentinel(u8, vs_path.len, 0);
     @memcpy(vs_path_cstr, vs_path);
     defer allocator.free(vs_path_cstr);
 
-    const ps_path = try std.fs.path.join(allocator, &.{ app_dir, "..", "shaders", ps_name });
+    const ps_path = try resolveShaderPath(allocator, io, app_dir, ps_name);
     defer allocator.free(ps_path);
 
     const ps_path_cstr = try allocator.allocSentinel(u8, ps_path.len, 0);
@@ -63,4 +63,30 @@ pub fn main() !void {
     engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
     engine.addGeometryObjectWithParams(&object_params, -0.5, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
     try engine.run();
+}
+
+/// 按 exe 目录找着色器：
+/// - 开发布局：`zig-out/bin/../shaders/`；
+/// - macOS bundle：`ShadeFlow.app/Contents/MacOS/../Resources/shaders/`。
+fn resolveShaderPath(
+    allocator: std.mem.Allocator,
+    io: Io,
+    app_dir: []const u8,
+    name: []const u8,
+) ![]u8 {
+    const relative_dirs = [_][]const u8{ "shaders", "Resources/shaders" };
+    var last_error: anyerror = error.ShaderNotFound;
+
+    for (relative_dirs) |dir| {
+        const path = try std.fs.path.join(allocator, &.{ app_dir, "..", dir, name });
+        if (std.Io.Dir.accessAbsolute(io, path, .{})) |_| {
+            return path;
+        } else |err| {
+            last_error = err;
+        }
+        allocator.free(path);
+    }
+
+    std.log.err("找不到着色器 {s}（exe 目录：{s}）", .{ name, app_dir });
+    return last_error;
 }

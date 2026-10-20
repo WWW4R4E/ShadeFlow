@@ -1,8 +1,7 @@
 //! D3D11 渲染后端。
 //!
 //! 对外契约（与 `Types.zig` 一起）由 `render/Renderer.zig` 转出；`Engine` 只
-//! 通过那层门面使用它，不再直接接触 `ID3D11Device*`。D3D12 后端实现同名
-//! 方法即可，`Engine` / `scene` 不需要改。
+//! 通过那层门面使用它
 
 const std = @import("std");
 

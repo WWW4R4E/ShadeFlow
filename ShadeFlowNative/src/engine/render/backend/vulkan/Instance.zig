@@ -1,11 +1,14 @@
-//! VkInstance + 平台 surface（Windows/Wayland）+ 校验层。
+//! VkInstance + 平台 surface（Windows/Win32、Linux/Wayland、macOS/Metal）+ 校验层。
 //!
-//! 加载方式：运行时加载 Vulkan loader 并取 `vkGetInstanceProcAddr`，不在
-//! 链接期依赖 `vulkan-1.lib` / `libvulkan.so`。
+//! 加载方式：运行时加载 Vulkan 实现并取 `vkGetInstanceProcAddr`，不在链接期
+//! 依赖 `vulkan-1.lib` / `libvulkan.so` / `libMoltenVK.dylib`。
 //!
 //! - Linux：`std.DynLib` + `libvulkan.so.1`（很多发行版只装运行时、没有 -dev 软链）。
 //! - Windows：`std.DynLib` 没有 Windows 实现，改走 kernel32 的
 //!   `LoadLibraryA("vulkan-1.dll")` + `GetProcAddress`。
+//! - macOS：没有系统 Vulkan。优先用 MoltenVK（`libMoltenVK.dylib`，它自带
+//!   Vulkan 入口，不经过 loader），再试 Vulkan SDK / Homebrew 的 loader。
+//!   surface 走 `VK_EXT_metal_surface`，直接包 windowkit 交出的 `CAMetalLayer`。
 //!
 //! wrapper 按值保存在结构体里，不持有指向自身的指针，所以 `Instance` 可以
 //! 安全地按值返回/移动。
@@ -17,17 +20,29 @@ const vk = @import("vulkan");
 
 const Types = @import("render_types");
 
-/// 只有 Windows 目标会分析 `WindowsLoader`；Linux 分支的 `win32` 是空占位，
-/// 保证 `typecheck-linux` 不需要 win32 模块。
+/// 只有 Windows 目标会分析 `WindowsLoader`；其他平台的 `win32` 是空占位，
+/// 保证不需要 win32 模块。
 const win32 = if (builtin.os.tag == .windows) @import("win32").everything else struct {};
 
 pub const validation_layer_name = "VK_LAYER_KHRONOS_validation";
 
-/// Vulkan loader 的动态库名。
-const loader_name: [*:0]const u8 = switch (builtin.os.tag) {
-    .windows => "vulkan-1.dll",
-    .linux => "libvulkan.so.1",
-    else => @compileError("Vulkan 后端只支持 Windows / Linux"),
+/// 各平台的动态库候选名（按顺序尝试，先命中先返回）。
+///
+/// macOS 顺序：MoltenVK 本体优先（最省事，不依赖 ICD 配置），再是 LunarG
+/// SDK / Homebrew 的 loader；`VULKAN_SDK` 下的绝对路径由 `openLoader` 追加。
+const loader_names: []const [:0]const u8 = switch (builtin.os.tag) {
+    .windows => &.{"vulkan-1.dll"},
+    .linux => &.{ "libvulkan.so.1", "libvulkan.so" },
+    .macos => &.{
+        "libMoltenVK.dylib",
+        "libvulkan.1.dylib",
+        "libvulkan.dylib",
+        "/opt/homebrew/lib/libMoltenVK.dylib",
+        "/usr/local/lib/libMoltenVK.dylib",
+        "/opt/homebrew/lib/libvulkan.1.dylib",
+        "/usr/local/lib/libvulkan.1.dylib",
+    },
+    else => @compileError("Vulkan 后端只支持 Windows / Linux / macOS"),
 };
 
 /// `std.DynLib` 在 Windows 上是 `@compileError`，这里按平台换实现。
@@ -52,6 +67,54 @@ const WindowsLoader = struct {
     }
 };
 
+/// 依次尝试 `loader_names`，失败时把最后一次错误往上抛。
+///
+/// macOS 额外查 `$VULKAN_SDK/lib`：LunarG SDK 不会把 dylib 加进 dyld 搜索
+/// 路径，用户通常也没设 `DYLD_LIBRARY_PATH`。
+fn openLoader() !Loader {
+    if (builtin.os.tag == .windows) return WindowsLoader.openZ("vulkan-1.dll");
+    return openPosixLoader();
+}
+
+/// Linux/macOS 共用：`std.DynLib` + 候选名（Windows 分支不会分析到这里）。
+fn openPosixLoader() !Loader {
+    var last_error: anyerror = error.FileNotFound;
+
+    for (loader_names) |name| {
+        if (std.DynLib.openZ(name)) |lib| {
+            return lib;
+        } else |err| {
+            last_error = err;
+        }
+    }
+
+    if (builtin.os.tag == .macos) {
+        if (std.c.getenv("VULKAN_SDK")) |sdk_z| {
+            const sdk = std.mem.span(sdk_z);
+            var buffer: [std.fs.max_path_bytes]u8 = undefined;
+            const candidates = [_][]const u8{
+                "lib/libMoltenVK.dylib",
+                "lib/libvulkan.1.dylib",
+                "lib/libvulkan.dylib",
+            };
+            for (candidates) |suffix| {
+                const path = std.fmt.bufPrintSentinel(&buffer, "{s}/{s}", .{ sdk, suffix }, 0) catch continue;
+                if (std.DynLib.openZ(path)) |lib| {
+                    return lib;
+                } else |err| {
+                    last_error = err;
+                }
+            }
+        }
+    }
+
+    std.log.err(
+        "找不到 Vulkan 实现（试过 {d} 个候选）。macOS 请安装 MoltenVK：brew install molten-vk，或安装 LunarG Vulkan SDK 并设置 VULKAN_SDK",
+        .{loader_names.len},
+    );
+    return last_error;
+}
+
 pub const Instance = struct {
     lib: Loader,
     base: vk.BaseWrapper,
@@ -60,17 +123,19 @@ pub const Instance = struct {
     surface: vk.SurfaceKHR,
     debug_messenger: ?vk.DebugUtilsMessengerEXT = null,
 
-    /// 创建 instance 与平台 surface（Windows: Win32；Linux: Wayland）。
+    /// 创建 instance 与平台 surface（Windows: Win32；Linux: Wayland；macOS: Metal）。
     pub fn init(native: Types.NativeWindow, enable_validation: bool) !Instance {
         // 先确认窗口类型，再决定要启用哪个 surface 扩展。
         const surface_extension: [:0]const u8 = switch (native) {
             // vulkan-zig 把扩展名拆成 khr_win_32_surface，别依赖这个拼写，直接写字面量。
             .win32 => "VK_KHR_win32_surface",
             .wayland => vk.instance_extensions.khr_wayland_surface.name,
+            // MoltenVK 的推荐 surface：直接包 CAMetalLayer（旧的 MVK_macos_surface 已废弃）。
+            .appkit => vk.instance_extensions.ext_metal_surface.name,
             else => return error.UnsupportedNativeWindow,
         };
 
-        var lib = try Loader.openZ(loader_name);
+        var lib = try openLoader();
         errdefer lib.close();
 
         const get_proc_addr = lib.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse
@@ -91,12 +156,24 @@ pub const Instance = struct {
             allocator,
         );
 
-        var extension_names: [3][*:0]const u8 = undefined;
+        // MoltenVK 属于 portability 实现：必须显式启用并设置枚举标志，
+        // 否则 vkEnumeratePhysicalDevices 可能一台设备都看不到。
+        const portability = try hasInstanceExtension(
+            base,
+            vk.instance_extensions.khr_portability_enumeration.name,
+            allocator,
+        );
+
+        var extension_names: [4][*:0]const u8 = undefined;
         var extension_count: usize = 0;
         extension_names[extension_count] = vk.instance_extensions.khr_surface.name.ptr;
         extension_count += 1;
         extension_names[extension_count] = surface_extension.ptr;
         extension_count += 1;
+        if (portability) {
+            extension_names[extension_count] = vk.instance_extensions.khr_portability_enumeration.name.ptr;
+            extension_count += 1;
+        }
         if (debug_utils) {
             extension_names[extension_count] = vk.instance_extensions.ext_debug_utils.name.ptr;
             extension_count += 1;
@@ -115,6 +192,7 @@ pub const Instance = struct {
         };
 
         const create_info = vk.InstanceCreateInfo{
+            .flags = .{ .enumerate_portability_khr = portability },
             .p_application_info = &app_info,
             .enabled_layer_count = if (validation) 1 else 0,
             .pp_enabled_layer_names = if (validation) &layer_names else null,
@@ -142,6 +220,12 @@ pub const Instance = struct {
                     .surface = @ptrCast(handles.surface),
                 };
                 break :blk try wrapper.createWaylandSurfaceKHR(handle, &surface_info, null);
+            },
+            .appkit => |handles| blk: {
+                const surface_info = vk.MetalSurfaceCreateInfoEXT{
+                    .p_layer = @ptrCast(handles.metal_layer),
+                };
+                break :blk try wrapper.createMetalSurfaceEXT(handle, &surface_info, null);
             },
             else => unreachable,
         };

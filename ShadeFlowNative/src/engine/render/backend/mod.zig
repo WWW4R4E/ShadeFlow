@@ -4,7 +4,7 @@
 //! 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`。
 //!
 //! - Windows 默认 `d3d11`，`-Dbackend=vulkan` 时换成 `vulkan`；
-//! - Linux 固定 `vulkan`。
+//! - Linux / macOS 固定 `vulkan`（macOS 通过 MoltenVK）。
 //!
 //! 未选中的后端不会进入任何模块的 import 表，所以既不会被分析，也不会触发
 //! vulkan-zig 生成绑定。这里只做转发和契约检查。
@@ -28,6 +28,7 @@ pub const shader_format = impl.shader_format;
 
 pub const is_windows = builtin.os.tag == .windows;
 pub const is_linux = builtin.os.tag == .linux;
+pub const is_macos = builtin.os.tag == .macos;
 
 /// 当前后端的能力。
 pub fn getCapabilities() Types.Capabilities {

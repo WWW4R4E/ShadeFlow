@@ -39,3 +39,4 @@ pub const Types = @import("render_types");
 
 pub const is_windows = backend.is_windows;
 pub const is_linux = backend.is_linux;
+pub const is_macos = backend.is_macos;

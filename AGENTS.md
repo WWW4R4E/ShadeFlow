@@ -1,7 +1,8 @@
 # AGENTS.md
 
 ShadeFlow 分两半：`ShadeFlowNative/`（Zig 图形引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
-Windows 默认 Direct3D 11（计划迁 D3D12），可用 `-Dbackend=vulkan` 切到 Vulkan；Linux 走 Vulkan。
+Windows 默认 Direct3D 11（计划迁 D3D12），可用 `-Dbackend=vulkan` 切到 Vulkan；Linux 走 Vulkan；
+macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLayer`。
 根 `Readme.md` 的结构图已部分过时（没有 `engine/core/`）；以代码为准。
 
 ## 命令（都在 `ShadeFlowNative/` 下执行）
@@ -9,6 +10,8 @@ Windows 默认 Direct3D 11（计划迁 D3D12），可用 `-Dbackend=vulkan` 切�
 - `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。**仓库没有配置任何测试步骤**，改完靠构建 + 跑起来验证。
 - `zig build run` —— 跑独立窗口 demo（窗口/输入改动的常规验证方式）。
 - `zig build dll` —— **仅 Windows**：额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
+- `zig build app` —— **仅 macOS**：打包 `zig-out/ShadeFlow.app`（Info.plist + Resources/shaders），`main.zig` 会按 bundle 布局找 `../Resources/shaders`。
+- `zig build typecheck-macos` —— 从任意主机交叉分析 macOS 分支（只 `build-obj`，不链接，所以 Linux 上没 macOS SDK 也能过）。改动 `Instance.zig` / `Window.zig` / `main.zig` 的 macOS 路径后先跑它。
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
 - 着色器工具链注意：D3D12 落地时 `compile_shaders.bat` 要从 `fxc` 换到 `dxc` + SM 6.x；fxc 产出的 vs_5_0 二进制 D3D12 不认。
@@ -24,7 +27,7 @@ src/engine/render/
   backend/
     mod.zig           ← 转发 build.zig 选定的 `render_backend` + 契约方法检查
     d3d11/            ← Windows（默认；作为独立模块 import win32）
-    vulkan/           ← Windows（`-Dbackend=vulkan`）/ Linux
+    vulkan/           ← Windows（`-Dbackend=vulkan`）/ Linux / macOS（MoltenVK）
 ```
 
 - 后端由 `build.zig` 决定：`render_backend` 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`，未选中的后端不进入模块图。`Types.zig` 作为 `render_types` 模块共享，保证跨模块的 `NativeWindow` 等类型是同一份。
@@ -34,8 +37,9 @@ src/engine/render/
 - 资源类型通过门面转出（`Renderer.Buffer/Shader/Texture`）；`scene/Object.zig` 不再 import 后端文件。
 - `Renderer` 自己持有常量缓冲区（`setConstants` 懒创建），`Engine` 不再管 `Buffer`。
 - 后端差异备忘：D3D12 的常量缓冲要 256 字节对齐（当前 `Constants` 是 224，迁移时必须 padding）、状态对象要变成 PSO 缓存、Vulkan 需要翻转 Y 轴 / 用 SPIR-V。详见 `backend/vulkan/mod.zig` 顶部注释。
-- Vulkan 的 loader 运行时加载，不在链接期依赖 Vulkan SDK：Windows 走 `LoadLibraryA("vulkan-1.dll")`，Linux 走 `dlopen("libvulkan.so.1")`。surface 分别是 `VK_KHR_win32_surface` / `VK_KHR_wayland_surface`。
-- Vulkan 着色器统一用 `glslc` 编 SPIR-V（`zig build shaders`，已挂进 install）。查找顺序：`-Dglslc=<path>` → PATH → `%VULKAN_SDK%`。
+- Vulkan 的 loader 运行时加载，不在链接期依赖 Vulkan SDK：Windows 走 `LoadLibraryA("vulkan-1.dll")`，Linux 走 `dlopen("libvulkan.so.1")`，macOS 依次尝试 `libMoltenVK.dylib` → `libvulkan.1.dylib` → Homebrew 绝对路径 → `$VULKAN_SDK/lib`。surface 分别是 `VK_KHR_win32_surface` / `VK_KHR_wayland_surface` / `VK_EXT_metal_surface`。
+- macOS 专属：`CAMetalLayer` 由 windowkit 创建并同步 `drawableSize`，后端只把它塞进 `VkMetalSurfaceCreateInfoEXT.pLayer`；instance 必须启用 `VK_KHR_portability_enumeration` + `VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR`，device 若 advertise `VK_KHR_portability_subset` 就必须一起启用。直接 dlopen MoltenVK 时不会有校验层（校验层只有 loader 能加载），debug 构建里那条 warning 是正常的。
+- Vulkan 着色器统一用 `glslc` 编 SPIR-V（`zig build shaders`，已挂进 install）。查找顺序：`-Dglslc=<path>` → PATH → `%VULKAN_SDK%`（Windows `Bin/glslc.exe`，Linux/macOS `bin/glslc`）。
 
 ## ABI / 两模式边界
 
@@ -55,6 +59,6 @@ src/engine/render/
 
 ## 约定
 
-- 命名按 `fmt.md`：类型 PascalCase、**函数 camelCase（有意偏离 Zig 上游风格）**、变量/字段 snake_case、常量 SCREAMING_SNAKE。
+- 命名按 `fmt.md` 编写。
 - 注释、日志、提交说明都是中文，保持一致。
 - `笔记/` 放设计推导（相机系统、矩阵/投影、万向锁、渲染初始化）。动相机或场景数学前先看对应笔记。

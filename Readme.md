@@ -14,7 +14,7 @@ ShadeFlow/
 │   │   │   ├── Engine.zig    # 引擎主体（相机/场景对象/主循环）
 │   │   │   ├── optional/     # 窗口与输入（windowkit 适配层）
 │   │   │   ├── render/       # 渲染门面（Types.zig + Renderer.zig）
-│   │   │   │   └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux）
+│   │   │   │   └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux、macOS/MoltenVK）
 │   │   │   ├── scene/        # 变换、对象、几何生成
 │   │   │   └── view/         # 相机与拾取
 │   │   ├── utils/            # 工具类 (Time.zig、数学库)
@@ -38,7 +38,8 @@ ShadeFlow/
 | 平台 | 渲染后端 | 窗口 |
 |---|---|---|
 | Windows | Direct3D 11（D3D12 计划中） | WinUI 3 `SwapChainPanel` 或独立 HWND |
-| Linux | Vulkan（骨架，待实现） | Wayland（windowkit） |
+| Linux | Vulkan | Wayland（windowkit） |
+| macOS | Vulkan（MoltenVK） | AppKit + `CAMetalLayer`（windowkit） |
 
 后端在 `src/engine/render/backend/mod.zig` 按 `builtin.os.tag` 编译期选择；
 `Engine` / `scene` 只依赖 `render/Types.zig` 与门面类型，不能直接 import 任何
@@ -69,6 +70,9 @@ ShadeFlow/
 - Vulkan 后端：`glslc`（Vulkan SDK / shaderc；也可用 `-Dglslc=<path>` 指定）
 - Linux：Wayland + `libvulkan.so.1`（运行时加载器）；绑定由 `vendor/vk.xml` 生成
 - Windows 想跑 Vulkan：内嵌 loader 从 `vulkan-1.dll` 运行时加载，驱动装好即可
+- macOS：MoltenVK（Vulkan → Metal）。装法二选一：
+  - `brew install molten-vk`（再 `brew install shaderc` 提供 `glslc`）
+  - LunarG Vulkan SDK（设置 `VULKAN_SDK`，自带 `libMoltenVK.dylib` 和 `glslc`）
 
 ### 构建 Zig 引擎
 ```bash
@@ -76,6 +80,13 @@ cd ShadeFlowNative
 zig build dll    # Windows：构建 DLL 并复制到 ShadeFlowUI
 zig build run    # 独立运行测试（Windows 默认 D3D11）
 zig build run -Dbackend=vulkan   # Windows 切到 Vulkan 后端
+
+# macOS：Vulkan 固定走 MoltenVK
+zig build run    # 开发时直接跑 zig-out/bin/ShadeFlowNative
+zig build app    # 打包 zig-out/ShadeFlow.app（双击启动）
+
+# 没有 macOS 机器时也能做类型检查
+zig build typecheck-macos
 ```
 
 ### 运行独立测试

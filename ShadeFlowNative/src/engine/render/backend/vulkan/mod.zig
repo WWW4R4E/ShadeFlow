@@ -1,4 +1,4 @@
-//! Vulkan 后端命名空间（Windows / Win32、Linux / Wayland）。
+//! Vulkan 后端命名空间（Windows / Win32、Linux / Wayland、macOS / Metal/MoltenVK）。
 
 const Types = @import("render_types");
 

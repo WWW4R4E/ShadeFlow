@@ -1,4 +1,4 @@
-//! Vulkan 渲染后端（Windows / Win32、Linux / Wayland）。
+//! Vulkan 渲染后端（Windows / Win32、Linux / Wayland、macOS / Metal via MoltenVK）。
 //!
 //! 帧流程与 D3D11 后端的语义对齐，但 Vulkan 要求 CPU 显式管同步：
 //!
@@ -120,8 +120,9 @@ pub const Renderer = struct {
         self.descriptor.deinit();
         self.sync.deinit();
         self.swap_chain.deinit();
-        self.instance.deinit();
+        // 先销毁 device，再销毁 instance：VkDevice 必须在 VkInstance 之前释放。
         self.device.deinit();
+        self.instance.deinit();
     }
 
     // =========================================================================
