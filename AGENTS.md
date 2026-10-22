@@ -7,7 +7,10 @@ macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLaye
 
 ## 命令（都在 `ShadeFlowNative/` 下执行）
 
-- `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。**仓库没有配置任何测试步骤**，改完靠构建 + 跑起来验证。
+- `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。
+- `zig build test` —— 单元测试。宿主侧输入状态 + 引擎侧纯数学（Aabb / Matrix / Picker）+ 顶点布局自洽性；纯逻辑、不碰 GPU。资源导入（`asset/`）落地后，glTF / PNG 解析器的测试会加进来。
+  - **Zig 只收集「在 test 块里显式引用过」的文件里的测试**，单纯的 import 传递不会把测试带进来（`std/std.zig` 用 `testing.refAllDecls(@This())` 也是这个原因）。所以新增带测试的文件时，必须在 `src/tests.zig` 的 `test` 块里加一行，否则它的用例会**静默不跑**。
+  - `render_types` 是独立模块，它的测试不会被 `src/tests.zig` 收进来，`build.zig` 里单独跑一个目标。
 - `zig build run` —— 跑独立窗口 demo（窗口/输入改动的常规验证方式）。
 - `zig build dll` —— **仅 Windows**：额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
 - `zig build app` —— **仅 macOS**：打包 `zig-out/ShadeFlow.app`（Info.plist + Resources/shaders），`main.zig` 会按 bundle 布局找 `../Resources/shaders`。
@@ -75,6 +78,14 @@ src/
 - Windows 后端的鼠标坐标是**物理客户区像素**（README 说逻辑像素，与代码不符），不要再乘 `scaleFactor`，否则和物理像素的视口/Picker 对不上。归一逻辑在 `host/Host.zig` 的 `toEnginePx`。
 - macOS 的 `plat.run()` 是 `[NSApp run]`，关掉窗口不会让它返回：关闭回调里要 `win.getPlatform().quit()`（windowkit 自己的 demo 也这么做）。
 - `input.zig` 的 `keyCodeFromVirtualKey` 只查 `VK_L*/R*` 修饰键变体，真实键盘来的 `VK_CONTROL/VK_SHIFT/VK_MENU` 会折叠成 `.unknown`：判断 Ctrl/Alt/Shift 要用事件里的 `modifiers` 字段或 `modifiers_changed`，别依赖 `key_down` 的 KeyCode 映射。
+
+## 输入状态（`src/host/Input.zig`）— 踩过的坑
+
+这三条都是"事件驱动的输入"折算成"帧边界可查询的状态"时容易踩的，改之前先看 `zig build test` 里的用例：
+
+- **鼠标位移必须累加**。写成 `delta = x - last_x` 的话，两次鼠标移动之间只保留最后一次的位移：鼠标频率（120Hz+）高于帧率（60Hz）时会丢掉大部分运动，相机发"顿"。
+- **位移只在中键拖动期间累计**，且**中键按下时清零**。否则按下中键的第一帧会把按下之前那段陈旧位移一次性灌进相机（"按下瞬间相机跳一下"）。首次鼠标移动只定锚点、不产生位移——否则启动后第一次移动会从 (0,0) 算起，攒出巨大假位移。
+- **一次性输入（滚轮）要记住"事件当下的修饰键"**。滚轮量留到帧边界才消费时，如果这时才去看"现在按着 Ctrl 没有"，会出现"先无 Ctrl 滚一下、再按住 Ctrl，下一帧凭空缩放"。`Input.wheel_modifiers` 就是干这个的。
 
 ## 约定
 
