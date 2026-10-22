@@ -10,18 +10,21 @@ ShadeFlow 是一个结合 Zig 原生图形引擎和 WinUI 3 现代界面的图�
 ShadeFlow/
 ├── ShadeFlowNative/          # Zig 原生引擎
 │   ├── src/
+│   │   ├── host/             # 宿主侧：窗口事件 → 引擎命令
+│   │   │   ├── Host.zig           # 事件翻译 + 帧边界调度
+│   │   │   ├── Input.zig          # 输入状态
+│   │   │   └── native_handles.zig # windowkit 句柄 → 渲染层中立句柄
 │   │   ├── engine/
-│   │   │   ├── Engine.zig    # 引擎主体（相机/场景对象/主循环）
-│   │   │   ├── optional/     # 窗口与输入（windowkit 适配层）
-│   │   │   ├── render/       # 渲染门面（Types.zig + Renderer.zig）
-│   │   │   │   └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux、macOS/MoltenVK）
+│   │   │   ├── Engine.zig    # 引擎主体（只认命令，不认输入设备）
 │   │   │   ├── scene/        # 变换、对象、几何生成
-│   │   │   └── view/         # 相机与拾取
+│   │   │   ├── view/         # 相机与拾取
+│   │   │   └── render/       # 渲染门面（Types.zig + Renderer.zig）
+│   │   │       └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux、macOS/MoltenVK）
 │   │   ├── utils/            # 工具类 (Time.zig、数学库)
 │   │   ├── capi.zig          # Windows 专用 C-ABI 导出（WinUI 3 / Composition）
-│   │   ├── main.zig          # 独立运行入口
+│   │   ├── main.zig          # 独立窗口宿主入口
 │   │   └── root.zig          # 跨平台引擎入口（exe 与其它 Zig 使用方）
-│   ├── assets/shaders/       # HLSL 源码
+│   ├── assets/shaders/       # HLSL / GLSL 源码
 │   ├── vendor/vk.xml         # Vulkan registry（构建期生成绑定）
 │   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）
 │   └── build.zig             # Zig 构建配置
@@ -32,6 +35,18 @@ ShadeFlow/
 │   └── Natives/              # 原生互操作
 └── 笔记/                     # 渲染/相机/矩阵的设计推导
 ```
+
+### 宿主 / 引擎边界
+
+引擎不认识任何输入设备，只提供 `cameraZoom` / `cameraPan` / `cameraOrbit` /
+`cameraSelfRotate` / `pickAt` 几个命令入口：
+
+- **独立窗口模式**：`src/main.zig` 用 windowkit 建窗口，`src/host/Host.zig`
+  把窗口事件翻译成引擎命令；
+- **Composition 模式**：WinUI 的 XAML 控件捕获输入，C# 侧翻译后调
+  `ShadeFlow_Camera*`，最终打到同一批引擎命令入口。
+
+因此引擎模块不链接 windowkit，Composition 模式的 DLL 也不用拖一套窗口库。
 
 ## 平台与渲染后端
 

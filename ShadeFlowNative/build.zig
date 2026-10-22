@@ -112,7 +112,6 @@ pub fn build(b: *std.Build) void {
         b,
         target,
         optimize,
-        windowkit,
         render_types,
         render_backend,
     );
@@ -126,6 +125,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "ShadeFlowNative", .module = engine_mod },
+                // 窗口与输入在宿主侧（src/host/），引擎本身不需要 windowkit。
+                .{ .name = "windowkit", .module = windowkit },
             },
         }),
     });
@@ -157,7 +158,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "win32", .module = win32Module(b) orelse return },
-                .{ .name = "windowkit", .module = windowkit },
                 .{ .name = "render_types", .module = render_types },
                 .{ .name = "render_backend", .module = render_backend },
             },
@@ -294,7 +294,6 @@ pub fn build(b: *std.Build) void {
             b,
             typecheck_target,
             optimize,
-            typecheck_windowkit,
             typecheck_render_types,
             typecheck_render_backend,
         );
@@ -306,6 +305,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .imports = &.{
                     .{ .name = "ShadeFlowNative", .module = typecheck_engine },
+                    .{ .name = "windowkit", .module = typecheck_windowkit },
                 },
             }),
         });
@@ -400,11 +400,14 @@ fn vulkanModule(b: *std.Build, optimize: std.builtin.OptimizeMode) ?*std.Build.M
 ///
 /// 引擎只依赖后端中立的 `render_types` 和已选定的 `render_backend`；
 /// `win32` / `vulkan` 由对应后端模块自己带，不会漏到引擎的 import 表里。
+///
+/// 引擎**不依赖 windowkit**：窗口与输入在宿主侧（`src/host/`），宿主通过
+/// 引擎的命令入口驱动它。这样 Composition 模式（`capi.zig`）的 DLL 不会
+/// 白链接一套窗口库。
 fn createEngineModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    windowkit: *std.Build.Module,
     render_types: *std.Build.Module,
     render_backend: *std.Build.Module,
 ) *std.Build.Module {
@@ -413,7 +416,6 @@ fn createEngineModule(
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "windowkit", .module = windowkit },
             .{ .name = "render_types", .module = render_types },
             .{ .name = "render_backend", .module = render_backend },
         },

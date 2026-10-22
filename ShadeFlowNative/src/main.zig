@@ -1,28 +1,61 @@
+//! 独立窗口应用（Windows / Linux / macOS）。
+//!
+//! 宿主职责：建窗口、装回调、跑事件循环。引擎（`ShadeFlowNative` 模块）不
+//! 认识 windowkit —— 窗口事件由 `host/Host.zig` 翻译成引擎命令
+//! （`cameraZoom` / `cameraPan` / `cameraOrbit` / `cameraSelfRotate` / `pickAt`）。
+
 const std = @import("std");
 const Io = std.Io;
 
-const Engine = @import("ShadeFlowNative").Engine;
-const Vertex = @import("ShadeFlowNative").Vertex;
-const Window = @import("ShadeFlowNative").Window;
-const shader_format = @import("ShadeFlowNative").shader_format;
-const GeometryGenerators = @import("ShadeFlowNative").GeometryGenerators;
+const windowkit = @import("windowkit");
+
+const ShadeFlowNative = @import("ShadeFlowNative");
+const Engine = ShadeFlowNative.Engine;
+const shader_format = ShadeFlowNative.shader_format;
+const GeometryGenerators = ShadeFlowNative.GeometryGenerators;
+
+const Host = @import("host/Host.zig").Host;
+const native_handles = @import("host/native_handles.zig");
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
-    var Mainwindow = try Window.init(allocator);
-    defer Mainwindow.deinit();
 
-    const size = Mainwindow.getClientSize();
-    const native_handles = Mainwindow.nativeHandles() orelse return error.NoNativeWindowHandle;
+    // 平台对象必须有稳定地址（Wayland registry / NSApp 回调会持有它），
+    // 所以放在栈上并原地初始化——这个栈帧活得比下面的事件循环久。
+    var plat: windowkit.Platform = undefined;
+    try plat.initInPlace(allocator);
+    defer plat.deinit();
 
-    var engine = try Engine.initForHwnd(allocator, native_handles, size.width, size.height);
-    engine.setWindow(Mainwindow);
-    // 先销毁渲染资源，再关窗口（windowkit 的契约）。
+    const win = try windowkit.PlatformWindow.init(allocator, &plat, &.{
+        .title = "ShadeFlow",
+        .width = 900,
+        .height = 600,
+        .centered = true,
+        .file_drop = true,
+        .max_size = .{ .width = 1600, .height = 900 },
+    });
+    defer win.deinit();
+
+    const px = win.framebufferSize();
+    var engine = try Engine.initForHwnd(
+        allocator,
+        native_handles.convertNativeHandles(win.nativeHandles()),
+        px.width_px,
+        px.height_px,
+    );
+    // 契约：先销毁渲染资源，再关窗口（windowkit 的要求）。
     defer engine.destroy();
 
-    const object_params = GeometryGenerators.GeometryParams{ .Cube = GeometryGenerators.CubeParams{ .size = 1.0 } };
+    // 宿主上下文放在栈上：windowkit 的 user_data 存的就是它的地址。
+    var host = Host.init(engine);
+    // windowkit 的 setUserData 只有**一个**槽位 —— 这里写一次，之后绝不再调。
+    win.setUserData(&host);
+    win.setInputCallback(onInput);
+    win.setCloseCallback(onClose);
+    win.setResizeCallback(onResize);
+    win.setRenderCallback(onFrame);
 
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
@@ -59,10 +92,44 @@ pub fn main() !void {
     const ps_path_cstr = try allocator.allocSentinel(u8, ps_path.len, 0);
     @memcpy(ps_path_cstr, ps_path);
     defer allocator.free(ps_path_cstr);
+
+    const object_params = GeometryGenerators.GeometryParams{ .Cube = GeometryGenerators.CubeParams{ .size = 1.0 } };
     // 因为addGeometryObjectWithParams导出给了C ABI，所以这里需要转换为[*:0]const u8，而不是[]u8
     engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
     engine.addGeometryObjectWithParams(&object_params, -0.5, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
-    try engine.run();
+
+    // 阻塞事件循环：Wayland 上直到没有打开的窗口；macOS 上直到 quit()。
+    plat.run();
+}
+
+// =========================================================================
+// windowkit 回调
+// =========================================================================
+//
+// 回调签名由 windowkit 定死，宿主上下文从 user_data 取（只有一个槽位，
+// 类型参数必须和 `main.zig` 里 `setUserData` 写入的一致）。
+
+fn onInput(win: *windowkit.PlatformWindow, event: windowkit.input.InputEvent) bool {
+    const host = win.getUserData(Host) orelse return false;
+    host.onInput(win, event);
+    return false;
+}
+
+fn onClose(win: *windowkit.PlatformWindow) bool {
+    // macOS 的 `run()` 是 `[NSApp run]`，关掉窗口不会让它返回；统一在这里
+    // quit() 一次。Linux 只是提前结束循环，行为一致（见 windowkit 的 demo）。
+    win.getPlatform().quit();
+    return true;
+}
+
+fn onResize(win: *windowkit.PlatformWindow, width: f64, height: f64) void {
+    const host = win.getUserData(Host) orelse return;
+    host.onResize(win, width, height);
+}
+
+fn onFrame(win: *windowkit.PlatformWindow) void {
+    const host = win.getUserData(Host) orelse return;
+    host.onFrame(win);
 }
 
 /// 按 exe 目录找着色器：

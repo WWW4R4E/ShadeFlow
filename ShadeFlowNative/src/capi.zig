@@ -3,6 +3,10 @@
 //! 只有 `zig build dll` 会以本文件为根模块，因此这里可以放心 import
 //! `win32`：Linux 上没有 WinUI 3 / Composition，也不构建 DLL。
 //! 跨平台的引擎类型出口在 `root.zig`（独立 exe 用）。
+//!
+//! 输入归属：WinUI 的 XAML 控件捕获全部用户输入，C# 侧把原始事件翻译成
+//! 高层命令后调 `ShadeFlow_Camera*`（对应引擎的 `Engine.camera*` 命令入口）。
+//! 独立窗口模式走的是同一批引擎命令，只是翻译发生在 `src/host/Host.zig`。
 
 const std = @import("std");
 const win32 = @import("win32").everything;
@@ -15,9 +19,9 @@ var allocator = gpa.allocator();
 
 /// 排空 WinUI 宿主线程的消息队列。
 ///
-/// Composition 模式下引擎没有 windowkit 的 `Window` 实例，事件循环由 C#
-/// 的 UI 线程负责；引擎每帧被 `ShadeFlow_RenderFrame` 驱动时顺手泵一下消息，
-/// 保证 Win32 消息不被饿死。
+/// Composition 模式下引擎没有自己的窗口（窗口归 WinUI 的 `SwapChainPanel`），
+/// 事件循环由 C# 的 UI 线程负责；引擎每帧被 `ShadeFlow_RenderFrame` 驱动时
+/// 顺手泵一下消息，保证 Win32 消息不被饿死。
 fn pumpMessages() void {
     var msg: win32.MSG = undefined;
     while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
@@ -129,7 +133,7 @@ export fn ShadeFlow_ResizeRenderer(width: u32, height: u32) bool {
 export fn ShadeFlow_RenderFrame() bool {
     if (engine_instance) |engine| {
         pumpMessages();
-        _ = engine.update() catch unreachable;
+        engine.update();
         engine.render();
         return true;
     }

@@ -1,8 +1,11 @@
 const std = @import("std");
 const wkInput = @import("windowkit").input;
 
-/// 引擎侧输入状态：把 windowkit 的平台无关 `InputEvent` 收敛成"本帧可查询
+/// 宿主侧输入状态：把 windowkit 的平台无关 `InputEvent` 收敛成"本帧可查询
 /// 的按住 / 位置状态"。
+///
+/// 这一层住在宿主（`host/`）而不是引擎里：引擎不认识输入设备，只接收宿主
+/// 翻译好的命令。WinUI 3 宿主（`capi.zig`）在 C# 侧做同样的翻译。
 pub const Input = struct {
     /// windowkit 的 `KeyTag` 是按 US ANSI 物理位置命名的纯枚举，没有对应的
     /// 平台原始键码，直接用 `EnumSet` 按枚举值建位图，别再假设它是小整数。
@@ -30,7 +33,7 @@ pub const Input = struct {
     }
 
     // =========================================================================
-    // 事件入口 —— 由 optional/Window.zig 的 translateEvent 调用
+    // 事件入口 —— 由 host/Host.zig 的 onInput 调用
     // =========================================================================
 
     pub fn onKey(self: *Input, key: wkInput.KeyTag, down: bool, modifiers: wkInput.Modifiers) void {

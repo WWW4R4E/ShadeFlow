@@ -3,10 +3,10 @@ const std = @import("std");
 const Matrix = @import("../utils/math/Matrix.zig").Matrix;
 const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
 const Time = @import("../utils/Time.zig").Time;
-const Window = @import("optional/Window.zig").Window;
 const render_api = @import("render/Renderer.zig");
 const Renderer = render_api.Renderer;
 const RenderObject = @import("scene/Object.zig").RenderObject;
+const Object = @import("scene/Object.zig").Object;
 const IndexedRenderObject = @import("scene/Object.zig").IndexedRenderObject;
 const Transform = @import("scene/Transform.zig").Transform;
 const Camera = @import("view/Camera.zig").Camera;
@@ -33,19 +33,22 @@ pub const Constants = struct {
     timeAndSelect: [4]f32, // x: time, y: is_select (0.0 或 1.0), z,w: 填充
 };
 
-// TODO: 后续重构计划
-// 当前 Engine 承担了对象管理职责（render_objects、indexed_render_objects 及相关方法）。
-// 当功能扩展（如导入模型、场景层级、对象查询、多场景切换等）时，
-// 应将对象管理相关功能抽离到独立的 Scene 模块中。
+// 引擎主体。
+//
+// 引擎**不认识任何输入设备**：它只提供 `cameraZoom` / `cameraPan` /
+// `cameraOrbit` / `cameraSelfRotate` / `pickAt` 这几个命令入口，由宿主
+// （独立窗口 `host/Host.zig`，或 WinUI 3 的 `capi.zig`）把平台的原始事件
+// 翻译成命令后调用。两种宿主走的是同一批命令入口，只是翻译发生在不同的地方。
+//
+// 这条边界让引擎保持纯跨平台：Composition 模式（`capi.zig`）不需要链接
+// windowkit，独立窗口模式也不需要知道 WinUI 的存在。
 pub const Engine = struct {
     /// 原生窗口句柄（Composition/DLL 模式下为 null）。
     native_window: ?render_api.NativeWindow,
-    window: ?*Window = null,
     allocator: std.mem.Allocator,
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
     indexed_render_objects: std.ArrayList(IndexedRenderObject),
-    size_changed: bool = false,
     time: Time,
     camera: Camera = Camera{},
     viewport: ?Viewport = null,
@@ -91,6 +94,14 @@ pub const Engine = struct {
             .indexed_render_objects = .empty,
             .time = Time.init(),
             .camera = Camera{},
+        };
+        // 视口在这里就建好：拾取（Picker）依赖它，宿主不需要再靠"第一帧恰好
+        // 会触发一次 resize"这种间接手段把视口顶起来。
+        engine.viewport = Viewport{
+            .x = 0.0,
+            .y = 0.0,
+            .width = @as(f32, @floatFromInt(renderer.width)),
+            .height = @as(f32, @floatFromInt(renderer.height)),
         };
         engine.camera.setAspectRatio(renderer.width, renderer.height);
         return engine;
@@ -258,113 +269,11 @@ pub const Engine = struct {
     // 主循环
     // =========================================================================
 
-    // 设置窗口实例
-    pub fn setWindow(self: *Engine, window: *Window) void {
-        self.window = window;
-    }
-
-    pub fn run(self: *Engine) !void {
-        // 阻塞式主循环只有 windowkit 窗口这一种驱动方式。Composition/DLL
-        // 模式没有 Window，由宿主逐帧调用 update()/render()。
-        const window = self.window orelse return error.NoWindow;
-        try window.run(self);
-    }
-
-    pub fn update(self: *Engine) !bool {
-        // 消息泵不在引擎里：有窗口时归 windowkit 的 plat.run()；无窗口的
-        // WinUI Composition 模式由 C-ABI 层（capi.zig）在每帧驱动前负责。
-
-        // 处理 Win32 窗口的输入
-        if (self.window) |window| {
-            // 同步窗口大小变化状态
-            if (window.size_changed) {
-                self.size_changed = true;
-                window.size_changed = false;
-            }
-
-            // 获取输入状态
-            const input = window.getInput();
-
-            // 处理 Ctrl+鼠标滚轮缩放
-            if (input.isZoomInput()) {
-                const wheel_delta = input.getMouseWheel();
-                // 调整相机距离
-                self.camera.zoom(@as(f32, @floatFromInt(wheel_delta)));
-                // 重置鼠标滚轮状态
-                input.resetMouseWheel();
-            }
-
-            // 处理 Ctrl+鼠标中键平移
-            if (input.isPanInput()) {
-                const mouse_delta = input.getMouseDelta();
-                // 平移相机
-                self.camera.pan(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
-                // 重置鼠标 delta 状态
-                input.resetMouseDelta();
-            }
-
-            // 处理鼠标中键绕中心旋转（不按alt键且不按ctrl键）
-            if (input.isOrbitInput()) {
-                const mouse_delta = input.getMouseDelta();
-                // 绕中心旋转相机（公转）
-                self.camera.rotateAroundCenter(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
-                // 重置鼠标 delta 状态
-                input.resetMouseDelta();
-            }
-
-            // 处理Alt+鼠标中键相机自转
-            if (input.isSelfRotateInput()) {
-                const mouse_delta = input.getMouseDelta();
-                // 相机自转
-                self.camera.rotateSelf(@as(f32, @floatFromInt(mouse_delta.x)), @as(f32, @floatFromInt(mouse_delta.y)));
-                // 重置鼠标 delta 状态
-                input.resetMouseDelta();
-            }
-
-            // 处理鼠标左键点击选取物体
-            if (input.isMouseButtonDown(.left)) {
-                // 检查视口是否已设置
-                if (self.viewport) |viewport| {
-                    // 获取鼠标位置
-                    const mouse_pos = input.getMousePosition();
-                    const screen_x = @as(f32, @floatFromInt(mouse_pos.x));
-                    const screen_y = @as(f32, @floatFromInt(mouse_pos.y));
-
-                    // 收集所有物体到一个数组
-                    var all_objects = std.ArrayList(*@import("scene/Object.zig").Object).empty;
-                    defer all_objects.deinit(self.allocator);
-
-                    for (self.render_objects.items) |*render_object| {
-                        try all_objects.append(self.allocator, &render_object.object);
-                    }
-
-                    for (self.indexed_render_objects.items) |*indexed_render_object| {
-                        try all_objects.append(self.allocator, &indexed_render_object.object);
-                    }
-
-                    // 调用选取功能
-                    if (Picker.pick(screen_x, screen_y, &viewport, &self.camera, all_objects.items)) |selected_object| {
-                        // 先取消所有物体的选中状态
-                        for (all_objects.items) |object| {
-                            object.select(false);
-                        }
-                        // 选中当前物体
-                        selected_object.select(true);
-                    }
-                }
-            }
-        }
-
+    /// 推进一帧。与输入无关：宿主在调用之前已经把自己的输入翻译成命令
+    /// （`cameraZoom` / `cameraPan` / … / `pickAt`）发出去了。
+    pub fn update(self: *Engine) void {
         // 更新相机位置
         self.camera.update();
-
-        if (self.size_changed) {
-            // 处理窗口大小变化
-            self.handleResize() catch |err| {
-                std.log.err("处理窗口大小变化失败: {s}", .{@errorName(err)});
-            };
-            self.size_changed = false;
-        }
 
         // 更新时间
         self.time.update();
@@ -378,8 +287,64 @@ pub const Engine = struct {
         for (self.indexed_render_objects.items) |*indexed_render_object| {
             indexed_render_object.update(delta_time);
         }
+    }
 
-        return true;
+    // =========================================================================
+    // 命令入口（宿主驱动）
+    // =========================================================================
+    //
+    // 引擎只认命令，不认输入设备。`capi.zig` 的 `ShadeFlow_Camera*` 与这里
+    // 的入口一一对应：WinUI 侧在 C# 里翻译输入，独立窗口侧在 `host/Host.zig`
+    // 里翻译输入，两边最终调用的是同一批函数。
+
+    /// 缩放相机（Ctrl + 滚轮）。
+    pub fn cameraZoom(self: *Engine, delta: f32) void {
+        self.camera.zoom(delta);
+    }
+
+    /// 平移相机（Ctrl + 中键拖动）。
+    pub fn cameraPan(self: *Engine, delta_x: f32, delta_y: f32) void {
+        self.camera.pan(delta_x, delta_y);
+    }
+
+    /// 相机绕场景中心公转（中键拖动）。
+    pub fn cameraOrbit(self: *Engine, delta_x: f32, delta_y: f32) void {
+        self.camera.rotateAroundCenter(delta_x, delta_y);
+    }
+
+    /// 相机绕自身视线轴自转（Alt + 中键拖动）。
+    pub fn cameraSelfRotate(self: *Engine, delta_x: f32, delta_y: f32) void {
+        self.camera.rotateSelf(delta_x, delta_y);
+    }
+
+    /// 屏幕坐标拾取（客户区物理像素，与 `Viewport` 同一坐标系）。
+    /// 命中就只选中该物体。
+    pub fn pickAt(self: *Engine, screen_x: f32, screen_y: f32) void {
+        const viewport = self.viewport orelse return;
+
+        var all_objects = std.ArrayList(*Object).empty;
+        defer all_objects.deinit(self.allocator);
+
+        for (self.render_objects.items) |*render_object| {
+            all_objects.append(self.allocator, &render_object.object) catch |err| {
+                std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
+                return;
+            };
+        }
+
+        for (self.indexed_render_objects.items) |*indexed_render_object| {
+            all_objects.append(self.allocator, &indexed_render_object.object) catch |err| {
+                std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
+                return;
+            };
+        }
+
+        if (Picker.pick(screen_x, screen_y, &viewport, &self.camera, all_objects.items)) |selected| {
+            for (all_objects.items) |object| {
+                object.select(false);
+            }
+            selected.select(true);
+        }
     }
 
     pub fn render(self: *Engine) void {
@@ -458,17 +423,7 @@ pub const Engine = struct {
     // Resize
     // =========================================================================
 
-    // 处理窗口大小变化
-    fn handleResize(self: *Engine) !void {
-        if (self.window) |window| {
-            const size = window.getClientSize();
-            try self.resizeRenderer(size.width, size.height);
-            return;
-        }
-        std.log.warn("无法处理窗口大小变化：没有窗口", .{});
-    }
-
-    /// 手动调整渲染器大小（用于外部 swapchain 或需要精确控制大小的场景）。
+    /// 手动调整渲染器大小（宿主在窗口尺寸变化时调用）。
     pub fn resizeRenderer(self: *Engine, width: u32, height: u32) !void {
         if (self.renderer) |*r| {
             // 设置视口大小
