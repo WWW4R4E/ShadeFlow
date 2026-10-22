@@ -1,11 +1,12 @@
 const std = @import("std");
 
-const Matrix = @import("../utils/math/Matrix.zig").Matrix;
-const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
-const Aabb = @import("../utils/math/Aabb.zig").Aabb;
-const Time = @import("../utils/Time.zig").Time;
-const render_api = @import("render/Renderer.zig");
-const Renderer = render_api.Renderer;
+const Matrix = @import("math/Matrix.zig").Matrix;
+const Quaternion = @import("math/Quaternion.zig").Quaternion;
+const Aabb = @import("math/Aabb.zig").Aabb;
+const Time = @import("Time.zig").Time;
+const NativeWindow = @import("render/Renderer.zig").NativeWindow;
+const RendererTypes = @import("render/Renderer.zig").Types;
+const Renderer = @import("render/Renderer.zig").Renderer;
 const RenderObject = @import("scene/Object.zig").RenderObject;
 const Object = @import("scene/Object.zig").Object;
 const IndexedRenderObject = @import("scene/Object.zig").IndexedRenderObject;
@@ -19,11 +20,9 @@ const GeometryGenerators = @import("scene/GeometryGenerators.zig").GeometryGener
 pub const GeometryParams = GeometryGenerators.GeometryParams;
 pub const GeometryType = GeometryGenerators.GeometryType;
 
-// 顶点结构，与着色器中的定义匹配
-pub const Vertex = struct {
-    position: [3]f32,
-    color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
-};
+// 顶点结构，与着色器中的定义匹配。定义在渲染层中立的 `render/Types.zig`
+// （那里还有描述它的 `position_color` 布局），这里转出一下方便外部使用。
+pub const Vertex = RendererTypes.Vertex;
 
 // 常量缓冲区结构，与着色器中的定义匹配
 pub const Constants = struct {
@@ -45,7 +44,7 @@ pub const Constants = struct {
 // windowkit，独立窗口模式也不需要知道 WinUI 的存在。
 pub const Engine = struct {
     /// 原生窗口句柄（Composition/DLL 模式下为 null）。
-    native_window: ?render_api.NativeWindow,
+    native_window: ?NativeWindow,
     allocator: std.mem.Allocator,
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
@@ -69,7 +68,7 @@ pub const Engine = struct {
     /// 为原生窗口初始化（独立窗口 demo；句柄由 windowkit 给出）。
     pub fn initForHwnd(
         allocator: std.mem.Allocator,
-        native_window: render_api.NativeWindow,
+        native_window: NativeWindow,
         width: u32,
         height: u32,
     ) !*Engine {
@@ -82,7 +81,7 @@ pub const Engine = struct {
     fn create(
         allocator: std.mem.Allocator,
         renderer: Renderer,
-        native_window: ?render_api.NativeWindow,
+        native_window: ?NativeWindow,
     ) !*Engine {
         const engine = try allocator.create(Engine);
         errdefer allocator.destroy(engine);
@@ -158,7 +157,7 @@ pub const Engine = struct {
         var shader = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
-            render_api.Types.position_color,
+            RendererTypes.position_color,
         );
         errdefer shader.deinit();
 
@@ -196,7 +195,7 @@ pub const Engine = struct {
         var shader = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
-            render_api.Types.position_color,
+            RendererTypes.position_color,
         );
         errdefer shader.deinit();
 

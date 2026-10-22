@@ -1,6 +1,10 @@
 const std = @import("std");
 
-const Vertex = @import("../Engine.zig").Vertex;
+// `Vertex` 定义在渲染层中立的 `render/Types.zig`。但那个文件是独立模块
+// `render_types` 的根——Zig 规定一个文件只能属于一个模块，所以不能用相对
+// 路径 import 它；要走门面 `render/Renderer.zig` 转出的 `Types`（命名模块）。
+// 也因此本文件不再反向 import `../Engine.zig`（文件级循环随之断掉）。
+const Vertex = @import("../render/Renderer.zig").Types.Vertex;
 
 // 几何形状参数结构
 pub const GeometryGenerators = struct {

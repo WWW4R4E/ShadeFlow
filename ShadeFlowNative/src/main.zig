@@ -1,6 +1,6 @@
 //! 独立窗口应用（Windows / Linux / macOS）。
 //!
-//! 宿主职责：建窗口、装回调、跑事件循环。引擎（`ShadeFlowNative` 模块）不
+//! 宿主职责：建窗口、装回调、跑事件循环。引擎（`shadeflow_engine` 模块）不
 //! 认识 windowkit —— 窗口事件由 `host/Host.zig` 翻译成引擎命令
 //! （`cameraZoom` / `cameraPan` / `cameraOrbit` / `cameraSelfRotate` / `pickAt`）。
 
@@ -9,10 +9,9 @@ const Io = std.Io;
 
 const windowkit = @import("windowkit");
 
-const ShadeFlowNative = @import("ShadeFlowNative");
-const Engine = ShadeFlowNative.Engine;
-const shader_format = ShadeFlowNative.shader_format;
-const GeometryGenerators = ShadeFlowNative.GeometryGenerators;
+const Engine = @import("shadeflow_engine").Engine;
+const shader_format = @import("shadeflow_engine").shader_format;
+const GeometryGenerators = @import("shadeflow_engine").GeometryGenerators;
 
 const Host = @import("host/Host.zig").Host;
 const native_handles = @import("host/native_handles.zig");

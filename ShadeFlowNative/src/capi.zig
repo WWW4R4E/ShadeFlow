@@ -2,7 +2,7 @@
 //!
 //! 只有 `zig build dll` 会以本文件为根模块，因此这里可以放心 import
 //! `win32`：Linux 上没有 WinUI 3 / Composition，也不构建 DLL。
-//! 跨平台的引擎类型出口在 `root.zig`（独立 exe 用）。
+//! 跨平台的引擎类型出口在 `engine/root.zig`（独立 exe 与其他 Zig 使用方）。
 //!
 //! 输入归属：WinUI 的 XAML 控件捕获全部用户输入，C# 侧把原始事件翻译成
 //! 高层命令后调 `ShadeFlow_Camera*`（对应引擎的 `Engine.camera*` 命令入口）。
@@ -11,8 +11,10 @@
 const std = @import("std");
 const win32 = @import("win32").everything;
 
-const Engine = @import("engine/Engine.zig").Engine;
-const GeometryGenerators = @import("engine/scene/GeometryGenerators.zig").GeometryGenerators;
+// 引擎通过命名模块导入（跨模块只能用命名导入）。相对 import 会把引擎源码
+// 再嵌一份进 DLL 模块，引擎就会有两份定义。
+const Engine = @import("shadeflow_engine").Engine;
+const GeometryGenerators = @import("shadeflow_engine").GeometryGenerators;
 
 var gpa = std.heap.DebugAllocator(.{}){};
 var allocator = gpa.allocator();

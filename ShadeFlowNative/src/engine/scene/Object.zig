@@ -1,7 +1,7 @@
 const Buffer = @import("../render/Renderer.zig").Buffer;
 const Shader = @import("../render/Renderer.zig").Shader;
 const Transform = @import("Transform.zig").Transform;
-const Aabb = @import("../../utils/math/Aabb.zig").Aabb;
+const Aabb = @import("../math/Aabb.zig").Aabb;
 
 // 基础渲染对象，包含所有可渲染物体的共同属性
 pub const Object = struct {

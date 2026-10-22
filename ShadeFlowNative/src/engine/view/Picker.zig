@@ -1,8 +1,8 @@
 const std = @import("std");
 const Camera = @import("Camera.zig").Camera;
 const Object = @import("../scene/Object.zig").Object;
-const Matrix = @import("../../utils/math/Matrix.zig").Matrix;
-const Aabb = @import("../../utils/math/Aabb.zig").Aabb;
+const Matrix = @import("../math/Matrix.zig").Matrix;
+const Aabb = @import("../math/Aabb.zig").Aabb;
 
 /// 方向分量小于这个值就当作 0：直接做 1/0 会得到 inf，
 /// 再乘上恰好为 0 的 `min - origin` 会变成 NaN。

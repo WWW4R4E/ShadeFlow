@@ -34,7 +34,7 @@ src/engine/render/
 ```
 
 - 后端由 `build.zig` 决定：`render_backend` 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`，未选中的后端不进入模块图。`Types.zig` 作为 `render_types` 模块共享，保证跨模块的 `NativeWindow` 等类型是同一份。
-- `Engine.zig`、`scene/`、`root.zig`、`host/` **只能** import `render/Renderer.zig`；出现 `backend/d3d11/...` 的 import 就是分层回退。
+- `Engine.zig`、`scene/`、`engine/root.zig` **只能** import `render/Renderer.zig`；出现 `backend/d3d11/...` 的 import 就是分层回退。
 - 新后端必须满足 `backend/mod.zig` 里列出的契约方法（`initForHwnd` / `beginFrame` / `createVertexBuffer` / `drawIndexed` …），缺一个在编译期报错。
 - `Types.NativeWindow` 与 windowkit 的 `NativeHandles` 字段一一对应，但**独立定义**：转换放在宿主侧（`host/native_handles.zig`），渲染层不依赖 windowkit。
 - 资源类型通过门面转出（`Renderer.Buffer/Shader/Texture`）；`scene/Object.zig` 不再 import 后端文件。
@@ -50,13 +50,18 @@ src/engine/render/
 src/
 ├── main.zig      ← 独立窗口宿主：windowkit 窗口 + 事件循环
 ├── capi.zig      ← WinUI 3 宿主：C-ABI 导出（Composition 模式）
-├── root.zig      ← 跨平台引擎类型出口
+├── tests.zig     ← zig build test 的用例收集根
 ├── host/         ← 宿主侧：窗口事件 → 引擎命令
 │   ├── Host.zig          ← 事件翻译 + 帧边界调度
 │   ├── Input.zig         ← 输入状态（按住 / 位置 / 修饰键）
 │   └── native_handles.zig← windowkit 句柄 → render 中立句柄
-└── engine/       ← 引擎：不认识 windowkit，也不认识任何输入设备
+└── engine/       ← 引擎模块（shadeflow_engine）：不认识 windowkit，也不认识输入设备
+    ├── root.zig  ← 模块根：跨平台引擎类型出口
+    └── …         ← 内部（Engine/scene/view/render/math/Time）一律相对路径
 ```
+
+- **import 规则一句话：在 `src/engine/` 里 → 相对路径；在外面 → 命名导入 `@import("shadeflow_engine")`。** 这是 Zig 的硬机制（相对路径 import 的文件并入当前模块；跨模块只能用 build.zig 里声明过的命名模块），不是风格偏好。引擎模块名要符合 fmt.md 的 snake_case，不要再用 PascalCase 的 `ShadeFlowNative`（那是 exe/DLL 产物名）。
+- 引擎只有**一份模块定义**：exe（`main.zig` + `host/`）和 DLL（`capi.zig`）都以命名模块导入它；`capi_mod` 的 imports 只有 `win32` + `shadeflow_engine`，后端模块（`render_types` / `render_backend`）由引擎模块自己带，不用重复声明。
 
 - **引擎只认命令，不认输入设备**。命令入口：`Engine.cameraZoom` / `cameraPan` / `cameraOrbit` / `cameraSelfRotate` / `pickAt`。独立窗口侧在 `host/Host.zig` 翻译输入，WinUI 侧在 C# 翻译输入，两边调的是同一批函数。
 - 引擎模块（`createEngineModule`）**不 import windowkit**，所以 Composition 模式的 DLL 不链接窗口库；windowkit 只挂在 exe 模块上。
@@ -65,7 +70,7 @@ src/
 
 ## ABI / 两模式边界
 
-- `src/main.zig` = 独立窗口应用；`src/root.zig` = 跨平台引擎类型出口；`src/capi.zig` = WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式），只作为 Windows DLL 的根模块。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
+- `src/main.zig` = 独立窗口应用；`src/engine/root.zig` = 引擎模块根（跨平台引擎类型出口）；`src/capi.zig` = WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式），只作为 Windows DLL 的根模块。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
 - `ShadeFlow_GetSwapChain` 通过后端中立的 `Renderer.swapChainInteropHandle()` 返回 `?*anyopaque`（D3D11 是 `IDXGISwapChain1*`，非 Direct 后端返回 null）。
 - `src/capi.zig` 的每个 `export fn` 必须和 `ShadeFlowUI/Natives/ShadeFlowNative.cs` 的 `[DllImport(..., CallingConvention.Cdecl)]` 一一对应。`GeometryParams` 是 `extern` 布局的 tagged union，C# 侧用 `[StructLayout(LayoutKind.Explicit)]` 手工对齐——两边任意一侧改字段都要同步。
 - `Engine.update` 不泵消息：独立窗口模式由 windowkit 的 `plat.run()` 驱动，WinUI Composition 模式由 `capi.zig` 在每帧 `ShadeFlow_RenderFrame` 里泵 Win32 消息。`ShadeFlow_*` 导出与 `win32` 只存在于 `capi.zig`（仅 Windows 构建），`Engine` 本身是纯跨平台的。

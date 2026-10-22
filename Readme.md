@@ -14,16 +14,18 @@ ShadeFlow/
 │   │   │   ├── Host.zig           # 事件翻译 + 帧边界调度
 │   │   │   ├── Input.zig          # 输入状态
 │   │   │   └── native_handles.zig # windowkit 句柄 → 渲染层中立句柄
-│   │   ├── engine/
+│   │   ├── engine/           # 引擎模块（shadeflow_engine）：内部一律相对路径
+│   │   │   ├── root.zig      # 模块根：对外的类型出口
 │   │   │   ├── Engine.zig    # 引擎主体（只认命令，不认输入设备）
+│   │   │   ├── Time.zig      # 帧计时
+│   │   │   ├── math/         # Aabb / Matrix / Quaternion（纯数学）
 │   │   │   ├── scene/        # 变换、对象、几何生成
 │   │   │   ├── view/         # 相机与拾取
 │   │   │   └── render/       # 渲染门面（Types.zig + Renderer.zig）
 │   │   │       └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux、macOS/MoltenVK）
-│   │   ├── utils/            # 工具类 (Time.zig、数学库)
 │   │   ├── capi.zig          # Windows 专用 C-ABI 导出（WinUI 3 / Composition）
 │   │   ├── main.zig          # 独立窗口宿主入口
-│   │   └── root.zig          # 跨平台引擎入口（exe 与其它 Zig 使用方）
+│   │   └── tests.zig         # zig build test 的用例收集根
 │   ├── assets/shaders/       # HLSL / GLSL 源码
 │   ├── vendor/vk.xml         # Vulkan registry（构建期生成绑定）
 │   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）

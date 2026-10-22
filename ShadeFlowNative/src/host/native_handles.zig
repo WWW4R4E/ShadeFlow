@@ -5,7 +5,7 @@
 
 const windowkit = @import("windowkit");
 
-const NativeWindow = @import("ShadeFlowNative").NativeWindow;
+const NativeWindow = @import("shadeflow_engine").NativeWindow;
 
 pub fn convertNativeHandles(handles: windowkit.NativeHandles) NativeWindow {
     return switch (handles) {

@@ -24,7 +24,7 @@ const builtin = @import("builtin");
 const windowkit = @import("windowkit");
 const wkInput = windowkit.input;
 
-const Engine = @import("ShadeFlowNative").Engine;
+const Engine = @import("shadeflow_engine").Engine;
 const Input = @import("Input.zig").Input;
 
 /// 宿主上下文：引擎引用 + 输入状态 + 帧边界的待办。

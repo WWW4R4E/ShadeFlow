@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Matrix = @import("../../utils/math/Matrix.zig").Matrix;
-const Quaternion = @import("../../utils/math/Quaternion.zig").Quaternion;
+const Matrix = @import("../math/Matrix.zig").Matrix;
+const Quaternion = @import("../math/Quaternion.zig").Quaternion;
 const Transform = @import("../scene/Transform.zig").Transform;
 
 pub const Camera = struct {

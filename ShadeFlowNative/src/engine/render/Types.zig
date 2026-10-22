@@ -122,7 +122,20 @@ pub const VertexLayout = struct {
     stride: u32,
 };
 
-/// 与 `Engine.Vertex`（position: [3]f32 + color: [4]f32）匹配的布局。
+// =============================================================================
+// 顶点
+// =============================================================================
+
+/// 顶点结构，与着色器中的定义匹配。
+///
+/// 放在这里而不是 `Engine.zig`：它是**渲染层中立的顶点格式**，`scene/` 侧的
+/// 几何生成器也要用它，放引擎根会让 `scene/` 反向依赖引擎根（文件级循环）。
+pub const Vertex = struct {
+    position: [3]f32,
+    color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+};
+
+/// 与 `Vertex`（position: [3]f32 + color: [4]f32）匹配的布局。
 pub const position_color = VertexLayout{
     .elements = &[_]VertexElement{
         .{ .semantic = "POSITION", .format = .f32x3, .offset = 0 },
@@ -187,10 +200,11 @@ pub const Capabilities = struct {
 };
 
 test "顶点布局的 stride 与字段偏移自洽" {
-    const Vertex = extern struct {
+    // 刻意用独立的 extern struct 复算一遍，不引用上面的 Vertex 本身。
+    const VertexExt = extern struct {
         position: [3]f32,
         color: [4]f32,
     };
-    try std.testing.expectEqual(@as(u32, @sizeOf(Vertex)), position_color.stride);
-    try std.testing.expectEqual(@as(u32, @offsetOf(Vertex, "color")), position_color.elements[1].offset);
+    try std.testing.expectEqual(@as(u32, @sizeOf(VertexExt)), position_color.stride);
+    try std.testing.expectEqual(@as(u32, @offsetOf(VertexExt, "color")), position_color.elements[1].offset);
 }

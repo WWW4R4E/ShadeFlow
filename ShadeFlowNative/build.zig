@@ -124,7 +124,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "ShadeFlowNative", .module = engine_mod },
+                .{ .name = "shadeflow_engine", .module = engine_mod },
                 // 窗口与输入在宿主侧（src/host/），引擎本身不需要 windowkit。
                 .{ .name = "windowkit", .module = windowkit },
             },
@@ -158,8 +158,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "win32", .module = win32Module(b) orelse return },
-                .{ .name = "render_types", .module = render_types },
-                .{ .name = "render_backend", .module = render_backend },
+                // 引擎本身作为命名模块导入（`@import("shadeflow_engine")`），
+                // 它内部的 render_types / render_backend 由引擎模块自己带。
+                .{ .name = "shadeflow_engine", .module = engine_mod },
             },
         });
         const lib = b.addLibrary(.{
@@ -337,7 +338,7 @@ pub fn build(b: *std.Build) void {
                 .target = typecheck_target,
                 .optimize = optimize,
                 .imports = &.{
-                    .{ .name = "ShadeFlowNative", .module = typecheck_engine },
+                    .{ .name = "shadeflow_engine", .module = typecheck_engine },
                     .{ .name = "windowkit", .module = typecheck_windowkit },
                 },
             }),
@@ -445,7 +446,7 @@ fn createEngineModule(
     render_backend: *std.Build.Module,
 ) *std.Build.Module {
     return b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/engine/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{

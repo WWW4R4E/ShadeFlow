@@ -11,7 +11,7 @@ test {
     _ = @import("host/Input.zig");
 
     // 引擎侧：纯数学部分
-    _ = @import("utils/math/Aabb.zig");
-    _ = @import("utils/math/Matrix.zig");
+    _ = @import("engine/math/Aabb.zig");
+    _ = @import("engine/math/Matrix.zig");
     _ = @import("engine/view/Picker.zig");
 }
