@@ -1,12 +1,16 @@
 const Buffer = @import("../render/Renderer.zig").Buffer;
 const Shader = @import("../render/Renderer.zig").Shader;
 const Transform = @import("Transform.zig").Transform;
+const Aabb = @import("../../utils/math/Aabb.zig").Aabb;
 
 // 基础渲染对象，包含所有可渲染物体的共同属性
 pub const Object = struct {
     vertex_buffer: Buffer,
     shader: Shader,
     transform: Transform = Transform{},
+    // 顶点位置在局部空间的包围盒，创建时由顶点数据算出；拾取时把射线
+    // 反变换到局部空间再和它做相交测试，所以旋转/缩放不需要重建。
+    local_aabb: Aabb,
     is_select: bool = false,
 
     pub fn select(self: *Object, is_select: bool) void {

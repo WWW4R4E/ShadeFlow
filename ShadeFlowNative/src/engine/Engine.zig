@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Matrix = @import("../utils/math/Matrix.zig").Matrix;
 const Quaternion = @import("../utils/math/Quaternion.zig").Quaternion;
+const Aabb = @import("../utils/math/Aabb.zig").Aabb;
 const Time = @import("../utils/Time.zig").Time;
 const render_api = @import("render/Renderer.zig");
 const Renderer = render_api.Renderer;
@@ -127,6 +128,16 @@ pub const Engine = struct {
     // 对象
     // =========================================================================
 
+    /// 用顶点位置算局部包围盒（与顶点同空间，不含 `Transform`）。
+    /// 顶点数据上传后就不再保留，所以必须在创建对象时算一次。
+    fn computeLocalAabb(vertices: []const Vertex) Aabb {
+        var bounds = Aabb.EMPTY;
+        for (vertices) |vertex| {
+            bounds.expandPoint(vertex.position);
+        }
+        return bounds;
+    }
+
     /// 添加渲染对象（非索引绘制）。
     pub fn addRenderObject(
         self: *Engine,
@@ -156,6 +167,7 @@ pub const Engine = struct {
                 .vertex_buffer = vertex_buffer,
                 .shader = shader,
                 .transform = .{ .position = position },
+                .local_aabb = computeLocalAabb(vertices),
             },
         });
     }
@@ -193,6 +205,7 @@ pub const Engine = struct {
                 .vertex_buffer = vertex_buffer,
                 .shader = shader,
                 .transform = .{ .position = position },
+                .local_aabb = computeLocalAabb(vertices),
             },
             .index_buffer = index_buffer,
             .index_count = @as(u32, @intCast(indices.len)),
@@ -318,7 +331,7 @@ pub const Engine = struct {
     }
 
     /// 屏幕坐标拾取（客户区物理像素，与 `Viewport` 同一坐标系）。
-    /// 命中就只选中该物体。
+    /// 命中就只选中该物体，没命中清空所有选中状态。
     pub fn pickAt(self: *Engine, screen_x: f32, screen_y: f32) void {
         const viewport = self.viewport orelse return;
 
@@ -339,11 +352,11 @@ pub const Engine = struct {
             };
         }
 
-        if (Picker.pick(screen_x, screen_y, &viewport, &self.camera, all_objects.items)) |selected| {
-            for (all_objects.items) |object| {
-                object.select(false);
-            }
-            selected.select(true);
+        const result = Picker.pick(screen_x, screen_y, &viewport, &self.camera, all_objects.items);
+        const picked_object: ?*Object = if (result) |hit| hit.object else null;
+
+        for (all_objects.items) |object| {
+            object.select(picked_object != null and object == picked_object.?);
         }
     }
 

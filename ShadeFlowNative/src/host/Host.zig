@@ -95,6 +95,9 @@ pub const Host = struct {
 
     /// 相机命令：缩放 = Ctrl + 滚轮；平移 = Ctrl + 中键；
     /// 公转 = 中键（不按 Alt / Ctrl）；自转 = Alt + 中键。
+    ///
+    /// 位移在每帧只应用一次：相机的旋转是四元数乘法，一帧里拆成很多次
+    /// 小旋转和一次大旋转结果并不相同，按帧合并才和"一帧拖了多远"对应。
     fn applyCameraCommands(self: *Host) void {
         const input = &self.input;
 

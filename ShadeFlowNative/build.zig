@@ -211,6 +211,39 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    // 单元测试。两个测试目标：
+    //
+    // - `src/tests.zig`：宿主侧输入状态 + 引擎侧纯数学（Aabb / Matrix / Picker）。
+    //   它会链上当前平台的渲染后端，但测试只跑数学，不碰 GPU。
+    // - `src/engine/render/Types.zig`：`render_types` 是独立模块，它的测试
+    //   不会被上面的根模块收进来，单独跑一个目标。
+    //
+    // 资源导入（asset/）落地后，glTF / PNG 解析器的测试会加进第一个目标。
+    const test_step = b.step("test", "Run unit tests");
+
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "windowkit", .module = windowkit },
+            .{ .name = "render_types", .module = render_types },
+            .{ .name = "render_backend", .module = render_backend },
+        },
+    });
+    const unit_tests = b.addTest(.{ .root_module = test_mod });
+    const run_tests = b.addRunArtifact(unit_tests);
+    test_step.dependOn(&run_tests.step);
+
+    const types_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/engine/render/Types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const types_tests = b.addTest(.{ .root_module = types_test_mod });
+    const run_types_tests = b.addRunArtifact(types_tests);
+    test_step.dependOn(&run_types_tests.step);
+
     // macOS 应用包：Finder 双击 / Gatekeeper / Dock 都按 bundle 识别。
     // 布局与 main.zig 的着色器查找顺序对应：
     //   ShadeFlow.app/Contents/MacOS/ShadeFlowNative
