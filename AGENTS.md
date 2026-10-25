@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ShadeFlow 分两半：`ShadeFlowNative/`（Zig 图形引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
-Windows 默认 Direct3D 11（计划迁 D3D12），可用 `-Dbackend=vulkan` 切到 Vulkan；Linux 走 Vulkan；
+Windows 默认 Direct3D 11，可用 `-Dbackend=d3d12`（D3D12 后端）或 `-Dbackend=vulkan` 切换；Linux 走 Vulkan；
 macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLayer`。
 根 `Readme.md` 的结构图已同步到当前布局（`src/host/` 与 `src/engine/` 两层）；细节以代码为准。
 
@@ -17,7 +17,7 @@ macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLaye
 - `zig build typecheck-macos` —— 从任意主机交叉分析 macOS 分支（只 `build-obj`，不链接，所以 Linux 上没 macOS SDK 也能过）。改动 `Instance.zig` / `host/Host.zig` / `main.zig` 的 macOS 路径后先跑它。
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
-- 着色器工具链注意：D3D12 落地时 `compile_shaders.bat` 要从 `fxc` 换到 `dxc` + SM 6.x；fxc 产出的 vs_5_0 二进制 D3D12 不认。
+- 着色器工具链注意：D3D11 用 `compile_shaders.bat`（fxc，SM 5.0）；**D3D12 用 `compile_shaders_d3d12.bat`（dxc，SM 6.0）**，fxc 产出的 vs_5_0 二进制 D3D12 不认。两个脚本产物名相同（`*VS.cso` / `*PS.cso`），切后端后必须重跑对应脚本。
 - 依赖（`win32`、`windowkit`、`vulkan`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
 - Vulkan 绑定：`vulkan-zig`（钉在 `zig-0.17-compat` 的 commit，用 codeload tarball URL）。它需要 `vendor/vk.xml`（3.3MB，来自 Vulkan-Headers `registry/vk.xml`）在构建期生成 `vk.zig`。升级 Zig 时要同步换 compat 分支，否则会撞 `standardOptimizeOption` 之类的 API 变化。
 

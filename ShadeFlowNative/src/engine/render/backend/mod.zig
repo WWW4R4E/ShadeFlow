@@ -1,9 +1,9 @@
 //! 渲染后端入口。
 //!
 //! 具体后端由 `build.zig` 在编译期选定：它把 `render_backend` 这个 import
-//! 指向 `d3d11/mod.zig` 或 `vulkan/mod.zig`。
+//! 指向 `d3d11/mod.zig`、`d3d12/mod.zig` 或 `vulkan/mod.zig`。
 //!
-//! - Windows 默认 `d3d11`，`-Dbackend=vulkan` 时换成 `vulkan`；
+//! - Windows 默认 `d3d11`，`-Dbackend=d3d12` / `-Dbackend=vulkan` 切换；
 //! - Linux / macOS 固定 `vulkan`（macOS 通过 MoltenVK）。
 //!
 //! 未选中的后端不会进入任何模块的 import 表，所以既不会被分析，也不会触发

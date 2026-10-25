@@ -39,15 +39,18 @@ pub fn build(b: *std.Build) void {
         @panic("只支持 Windows（D3D11/Vulkan）、Linux（Vulkan）与 macOS（Vulkan/MoltenVK）目标");
     }
 
-    // Windows 可以二选一：默认 d3d11，`-Dbackend=vulkan` 切到 Vulkan。
+    // Windows 可以三选一：默认 d3d11，`-Dbackend=d3d12` / `-Dbackend=vulkan` 切换。
     // Linux 固定 Vulkan（与 backend/mod.zig 的分支保持一致）。
     const windows_backend = b.option(
         []const u8,
         "backend",
-        "Windows 渲染后端：d3d11（默认）或 vulkan（macOS/Linux 固定 vulkan）",
+        "Windows 渲染后端：d3d11（默认）、d3d12 或 vulkan（macOS/Linux 固定 vulkan）",
     ) orelse "d3d11";
-    if (!std.mem.eql(u8, windows_backend, "d3d11") and !std.mem.eql(u8, windows_backend, "vulkan")) {
-        @panic("backend 只能是 d3d11 或 vulkan");
+    const valid_backends = [_][]const u8{ "d3d11", "d3d12", "vulkan" };
+    for (valid_backends) |valid| {
+        if (std.mem.eql(u8, windows_backend, valid)) break;
+    } else {
+        @panic("backend 只能是 d3d11、d3d12 或 vulkan");
     }
     const use_vulkan = !is_windows or std.mem.eql(u8, windows_backend, "vulkan");
 
@@ -65,15 +68,28 @@ pub fn build(b: *std.Build) void {
     });
 
     // 每个后端是一个独立模块，依赖只在它自己身上：
-    // - d3d11 跟着 win32 走，Windows 上始终可用；
+    // - d3d11 / d3d12 跟着 win32 走，Windows 上按 -Dbackend 二选一；
     // - vulkan 只在 `-Dbackend=vulkan`（或 Linux）时才创建。
     //
     // `win32` / `vulkan` 在 build.zig.zon 里标了 `lazy = true`：只有走到这里
     // （Windows / 用 Vulkan 的构建）才会去解析它们，别的平台连依赖登记都不会发生。
-    const d3d11_backend: ?*std.Build.Module = if (is_windows) blk: {
+    const d3d11_backend: ?*std.Build.Module = if (is_windows and std.mem.eql(u8, windows_backend, "d3d11")) blk: {
         const win32 = win32Module(b) orelse return;
         break :blk b.createModule(.{
             .root_source_file = b.path("src/engine/render/backend/d3d11/mod.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "win32", .module = win32 },
+                .{ .name = "render_types", .module = render_types },
+            },
+        });
+    } else null;
+
+    const d3d12_backend: ?*std.Build.Module = if (is_windows and std.mem.eql(u8, windows_backend, "d3d12")) blk: {
+        const win32 = win32Module(b) orelse return;
+        break :blk b.createModule(.{
+            .root_source_file = b.path("src/engine/render/backend/d3d12/mod.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -105,7 +121,12 @@ pub fn build(b: *std.Build) void {
     } else null;
 
     // 引擎只看到这个 `render_backend`：它指向哪个后端，就只编译哪个后端。
-    const render_backend = if (use_vulkan) vulkan_backend.? else d3d11_backend.?;
+    const render_backend = if (use_vulkan)
+        vulkan_backend.?
+    else if (std.mem.eql(u8, windows_backend, "d3d12"))
+        d3d12_backend.?
+    else
+        d3d11_backend.?;
 
     // 跨平台引擎模块（exe 用）。Linux 分支不引入 win32。
     const engine_mod = createEngineModule(
@@ -148,7 +169,7 @@ pub fn build(b: *std.Build) void {
     const dll_step = b.step("dll", "Build DLL and copy to ShadeFlowUI (Windows only)");
     if (is_windows and use_vulkan) {
         dll_step.dependOn(&b.addFail(
-            "WinUI Composition 模式只支持 D3D11；Vulkan 后端请用 zig build run -Dbackend=vulkan",
+            "WinUI Composition 模式只支持 D3D 后端；Vulkan 后端请用 zig build run -Dbackend=vulkan",
         ).step);
     } else if (is_windows) {
         const dll_copy_path = "../../ShadeFlowUI/";
