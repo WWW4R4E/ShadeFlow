@@ -1,7 +1,8 @@
 //! 独立窗口应用（Windows / Linux / macOS）。
 //!
-//! 宿主职责：建窗口、装回调、跑事件循环。引擎（`shadeflow_engine` 模块）不
-//! 认识 windowkit —— 窗口事件由 `host/Host.zig` 翻译成引擎命令
+//! 宿主职责：建窗口、装事件回调、跑**过程式主循环**（循环主权在宿主，
+//! windowkit 只提供 pump/waitEvent 原语）。引擎（`shadeflow_engine` 模块）
+//! 不认识 windowkit —— 窗口事件由 `host/Host.zig` 翻译成引擎命令
 //! （`cameraZoom` / `cameraPan` / `cameraOrbit` / `cameraSelfRotate` / `pickAt`）。
 
 const std = @import("std");
@@ -54,7 +55,7 @@ pub fn main() !void {
     win.setInputCallback(onInput);
     win.setCloseCallback(onClose);
     win.setResizeCallback(onResize);
-    win.setRenderCallback(onFrame);
+    // 不注册 setRenderCallback：帧节奏由下面的过程式循环掌握。
 
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
@@ -97,8 +98,22 @@ pub fn main() !void {
     engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
     engine.addGeometryObjectWithParams(&object_params, -0.5, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
 
-    // 阻塞事件循环：Wayland 上直到没有打开的窗口；macOS 上直到 quit()。
-    plat.run();
+    // 过程式主循环：循环主权在这里。
+    //
+    // - `waitEvent(16)`：没有事件就睡 16ms（~60Hz 兜底）；有输入立即醒。
+    //   Wayland 上窗口被遮挡时 compositor 不发帧事件，这里自然睡住——
+    //   “被遮挡即降功耗”不需要额外机制。
+    // - `pump()`：非阻塞派发就绪事件（输入/关闭/缩放回调都在这里跑）。
+    // - `host.frame()`：帧边界——输入状态折成引擎命令 → update → render。
+    //   渲染本身的 vsync 背压来自后端 present（FIFO / swapchain），
+    //   windowkit 不再替我们排节拍。
+    plat.start(); // 过程式循环必须先进入运行状态（run() 的糖会自动做）
+    while (plat.isRunning()) {
+        _ = plat.waitEvent(16);
+        plat.pump();
+        if (!plat.isRunning()) break; // pump 里 onClose 可能已 quit()
+        host.frame(win);
+    }
 }
 
 // =========================================================================
@@ -115,8 +130,8 @@ fn onInput(win: *windowkit.PlatformWindow, event: windowkit.input.InputEvent) bo
 }
 
 fn onClose(win: *windowkit.PlatformWindow) bool {
-    // macOS 的 `run()` 是 `[NSApp run]`，关掉窗口不会让它返回；统一在这里
-    // quit() 一次。Linux 只是提前结束循环，行为一致（见 windowkit 的 demo）。
+    // 返 true 允许关闭；同时停主循环。过程式模式下 quit() 只置 running =
+    // false，不会像旧的阻塞 `run()` 那样需要靠 `terminate:` 打断。
     win.getPlatform().quit();
     return true;
 }
@@ -124,11 +139,6 @@ fn onClose(win: *windowkit.PlatformWindow) bool {
 fn onResize(win: *windowkit.PlatformWindow, width: f64, height: f64) void {
     const host = win.getUserData(Host) orelse return;
     host.onResize(win, width, height);
-}
-
-fn onFrame(win: *windowkit.PlatformWindow) void {
-    const host = win.getUserData(Host) orelse return;
-    host.onFrame(win);
 }
 
 /// 按 exe 目录找着色器：

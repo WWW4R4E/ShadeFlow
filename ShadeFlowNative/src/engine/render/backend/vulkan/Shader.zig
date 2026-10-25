@@ -190,7 +190,6 @@ pub const Shader = struct {
             .f32x3 => .r32g32b32_sfloat,
             .f32x4 => .r32g32b32a32_sfloat,
             .u32 => .r32_uint,
-            .u16 => .r16_uint,
         };
     }
 

@@ -100,7 +100,6 @@ pub const Format = enum {
     f32x3,
     f32x4,
     u32,
-    u16,
 };
 
 /// 单个顶点属性。

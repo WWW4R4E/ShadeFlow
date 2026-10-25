@@ -175,7 +175,7 @@ pub const Engine = struct {
     pub fn addIndexedRenderObject(
         self: *Engine,
         vertices: []const Vertex,
-        indices: []const u16,
+        indices: []const u32,
         vertex_shader_path: []const u8,
         pixel_shader_path: []const u8,
         position: [3]f32,

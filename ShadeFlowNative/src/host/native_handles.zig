@@ -16,6 +16,5 @@ pub fn convertNativeHandles(handles: windowkit.NativeHandles) NativeWindow {
             .ns_view = h.ns_view,
             .metal_layer = h.metal_layer,
         } },
-        .web => .{ .web = .{} },
     };
 }

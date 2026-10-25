@@ -72,11 +72,11 @@ pub const Buffer = struct {
         self.count = @intCast(data.len / stride);
     }
 
-    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u16) !void {
+    pub fn createIndexBuffer(self: *Buffer, device: *Device, data: []const u32) !void {
         if (self.buffer_type != .index) return error.InvalidBufferType;
 
         const desc = win32.D3D11_BUFFER_DESC{
-            .ByteWidth = @intCast(data.len * @sizeOf(u16)),
+            .ByteWidth = @intCast(data.len * @sizeOf(u32)),
             .Usage = win32.D3D11_USAGE_DEFAULT,
             .BindFlags = win32.D3D11_BIND_INDEX_BUFFER,
             .CPUAccessFlags = .{},
@@ -96,7 +96,7 @@ pub const Buffer = struct {
         );
 
         self.replace(handle.?);
-        self.stride = @sizeOf(u16);
+        self.stride = @sizeOf(u32);
         self.count = @intCast(data.len);
     }
 
@@ -156,7 +156,7 @@ pub const Buffer = struct {
         if (self.buffer_type != .index) return;
         const handle = self.buffer orelse return;
 
-        device_context.IASetIndexBuffer(handle, win32.DXGI_FORMAT_R16_UINT, 0);
+        device_context.IASetIndexBuffer(handle, win32.DXGI_FORMAT_R32_UINT, 0);
     }
 
     pub fn bindConstantBufferVS(self: *const Buffer, device_context: *win32.ID3D11DeviceContext, slot: u32) void {

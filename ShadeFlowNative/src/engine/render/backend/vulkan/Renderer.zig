@@ -280,7 +280,7 @@ pub const Renderer = struct {
         return Buffer.createVertexBuffer(self.device.shared, data, stride, usage);
     }
 
-    pub fn createIndexBuffer(self: *Renderer, indices: []const u16) !Buffer {
+    pub fn createIndexBuffer(self: *Renderer, indices: []const u32) !Buffer {
         return Buffer.createIndexBuffer(self.device.shared, indices);
     }
 
@@ -389,7 +389,7 @@ pub const Renderer = struct {
         vertex_buffer.bindVertexBuffer(cmd, 0);
 
         if (index_buffer) |ib| {
-            ib.bindIndexBuffer(cmd, .uint16);
+            ib.bindIndexBuffer(cmd, .uint32);
             w.cmdDrawIndexed(cmd, count, 1, 0, 0, 0);
         } else {
             w.cmdDraw(cmd, count, 1, 0, 0);

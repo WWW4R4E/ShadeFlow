@@ -12,7 +12,7 @@ pub const GeometryGenerators = struct {
     /// `switch` 各分支统一到同一个类型。
     pub const Geometry = struct {
         vertices: []Vertex,
-        indices: []u16,
+        indices: []u32,
     };
 
     // 立方体参数
@@ -99,7 +99,7 @@ pub const GeometryGenerators = struct {
         vertices[6] = Vertex{ .position = [3]f32{ half_size, half_size, -half_size } }; // 右上后
         vertices[7] = Vertex{ .position = [3]f32{ -half_size, half_size, -half_size } }; // 左上后
 
-        var indices = try allocator.alloc(u16, 36);
+        var indices = try allocator.alloc(u32, 36);
         // 前面
         indices[0] = 0;
         indices[1] = 1;
@@ -156,7 +156,7 @@ pub const GeometryGenerators = struct {
         const index_count = segments * segments * 6;
 
         var vertices = try allocator.alloc(Vertex, vertex_count);
-        var indices = try allocator.alloc(u16, index_count);
+        var indices = try allocator.alloc(u32, index_count);
 
         // 生成顶点
         var i: u32 = 0;
@@ -183,8 +183,8 @@ pub const GeometryGenerators = struct {
         i = 0;
         for (0..segments) |lat| {
             for (0..segments) |lon| {
-                const first = @as(u16, @intCast(lat * (segments + 1) + lon));
-                const second = @as(u16, @intCast(first + segments + 1));
+                const first = @as(u32, @intCast(lat * (segments + 1) + lon));
+                const second = @as(u32, @intCast(first + segments + 1));
 
                 indices[i] = first;
                 indices[i + 1] = second;
@@ -214,7 +214,7 @@ pub const GeometryGenerators = struct {
         const index_count = segments * 6 + segments * 6; // 侧面三角形+顶面三角形+底面三角形
 
         var vertices = try allocator.alloc(Vertex, vertex_count);
-        var indices = try allocator.alloc(u16, index_count);
+        var indices = try allocator.alloc(u32, index_count);
 
         // 生成顶点
         var i: u32 = 0;
@@ -248,16 +248,16 @@ pub const GeometryGenerators = struct {
         // 顶面三角形
         for (0..segments) |seg| {
             indices[i] = 0;
-            indices[i + 1] = @as(u16, @intCast(2 + seg * 2));
-            indices[i + 2] = @as(u16, @intCast(2 + ((seg + 1) % segments) * 2));
+            indices[i + 1] = @as(u32, @intCast(2 + seg * 2));
+            indices[i + 2] = @as(u32, @intCast(2 + ((seg + 1) % segments) * 2));
             i += 3;
         }
 
         // 底面三角形（逆时针顺序）
         for (0..segments) |seg| {
             indices[i] = 1;
-            indices[i + 1] = @as(u16, @intCast(3 + ((seg + 1) % segments) * 2));
-            indices[i + 2] = @as(u16, @intCast(3 + seg * 2));
+            indices[i + 1] = @as(u32, @intCast(3 + ((seg + 1) % segments) * 2));
+            indices[i + 2] = @as(u32, @intCast(3 + seg * 2));
             i += 3;
         }
 
@@ -265,13 +265,13 @@ pub const GeometryGenerators = struct {
         for (0..segments) |seg| {
             const next_seg = (seg + 1) % segments;
 
-            indices[i] = @as(u16, @intCast(2 + seg * 2));
-            indices[i + 1] = @as(u16, @intCast(3 + seg * 2));
-            indices[i + 2] = @as(u16, @intCast(2 + next_seg * 2));
+            indices[i] = @as(u32, @intCast(2 + seg * 2));
+            indices[i + 1] = @as(u32, @intCast(3 + seg * 2));
+            indices[i + 2] = @as(u32, @intCast(2 + next_seg * 2));
 
-            indices[i + 3] = @as(u16, @intCast(3 + seg * 2));
-            indices[i + 4] = @as(u16, @intCast(3 + next_seg * 2));
-            indices[i + 5] = @as(u16, @intCast(2 + next_seg * 2));
+            indices[i + 3] = @as(u32, @intCast(3 + seg * 2));
+            indices[i + 4] = @as(u32, @intCast(3 + next_seg * 2));
+            indices[i + 5] = @as(u32, @intCast(2 + next_seg * 2));
 
             i += 6;
         }
@@ -292,7 +292,7 @@ pub const GeometryGenerators = struct {
         const index_count = segments * 3 + segments * 3; // 侧面三角形+底面三角形
 
         var vertices = try allocator.alloc(Vertex, vertex_count);
-        var indices = try allocator.alloc(u16, index_count);
+        var indices = try allocator.alloc(u32, index_count);
 
         // 生成顶点
         var i: u32 = 0;
@@ -321,16 +321,16 @@ pub const GeometryGenerators = struct {
         // 侧面三角形
         for (0..segments) |seg| {
             indices[i] = 0;
-            indices[i + 1] = @as(u16, @intCast(2 + seg));
-            indices[i + 2] = @as(u16, @intCast(2 + ((seg + 1) % segments)));
+            indices[i + 1] = @as(u32, @intCast(2 + seg));
+            indices[i + 2] = @as(u32, @intCast(2 + ((seg + 1) % segments)));
             i += 3;
         }
 
         // 底面三角形（逆时针顺序）
         for (0..segments) |seg| {
             indices[i] = 1;
-            indices[i + 1] = @as(u16, @intCast(2 + ((seg + 1) % segments)));
-            indices[i + 2] = @as(u16, @intCast(2 + seg));
+            indices[i + 1] = @as(u32, @intCast(2 + ((seg + 1) % segments)));
+            indices[i + 2] = @as(u32, @intCast(2 + seg));
             i += 3;
         }
 
@@ -343,7 +343,7 @@ pub const GeometryGenerators = struct {
         vertices[0] = Vertex{ .position = [3]f32{ params.x1, params.y1, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
         vertices[1] = Vertex{ .position = [3]f32{ params.x2, params.y2, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
 
-        var indices = try allocator.alloc(u16, 2);
+        var indices = try allocator.alloc(u32, 2);
         indices[0] = 0;
         indices[1] = 1;
 
@@ -359,7 +359,7 @@ pub const GeometryGenerators = struct {
         vertices[3] = Vertex{ .position = [3]f32{ params.x, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
 
         // 使用LINESTRIP需要4个顶点，索引为0,1,2,3,0
-        var indices = try allocator.alloc(u16, 5);
+        var indices = try allocator.alloc(u32, 5);
         indices[0] = 0;
         indices[1] = 1;
         indices[2] = 2;
@@ -378,7 +378,7 @@ pub const GeometryGenerators = struct {
         vertices[3] = Vertex{ .position = [3]f32{ params.x, params.y + params.height, params.z }, .color = [4]f32{ 1.0, 1.0, 1.0, 1.0 } };
 
         // 两个三角形: 0,1,2 和 0,2,3
-        var indices = try allocator.alloc(u16, 6);
+        var indices = try allocator.alloc(u32, 6);
         indices[0] = 0;
         indices[1] = 1;
         indices[2] = 2;

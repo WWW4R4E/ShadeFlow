@@ -51,7 +51,7 @@ pub const Buffer = struct {
         return buffer;
     }
 
-    pub fn createIndexBuffer(shared: *const Device.Shared, indices: []const u16) !Buffer {
+    pub fn createIndexBuffer(shared: *const Device.Shared, indices: []const u32) !Buffer {
         var buffer = try createDeviceLocal(shared, std.mem.sliceAsBytes(indices), .{ .index_buffer = true });
         buffer.count = @intCast(indices.len);
         return buffer;

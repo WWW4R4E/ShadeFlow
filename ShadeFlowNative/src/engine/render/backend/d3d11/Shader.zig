@@ -134,7 +134,6 @@ pub const Shader = struct {
             .f32x3 => win32.DXGI_FORMAT_R32G32B32_FLOAT,
             .f32x4 => win32.DXGI_FORMAT_R32G32B32A32_FLOAT,
             .u32 => win32.DXGI_FORMAT_R32_UINT,
-            .u16 => win32.DXGI_FORMAT_R16_UINT,
         };
     }
 

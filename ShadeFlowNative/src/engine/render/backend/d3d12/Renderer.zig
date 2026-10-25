@@ -179,7 +179,7 @@ pub const Renderer = struct {
         return buffer;
     }
 
-    pub fn createIndexBuffer(self: *Renderer, indices: []const u16) !Buffer {
+    pub fn createIndexBuffer(self: *Renderer, indices: []const u32) !Buffer {
         var buffer = Buffer.init(.index);
         errdefer buffer.deinit();
         try buffer.createIndexBuffer(&self.device, indices);

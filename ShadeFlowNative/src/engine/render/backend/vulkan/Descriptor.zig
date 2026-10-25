@@ -192,7 +192,7 @@ pub const Descriptor = struct {
             const dummy_images = [_]vk.DescriptorImageInfo{std.mem.zeroes(vk.DescriptorImageInfo)};
             const dummy_views = [_]vk.BufferView{.null};
             const buffer_info = [_]vk.DescriptorBufferInfo{
-                .{ .buffer = frame.buffer.handle, .offset = 0, .range = vk.WHOLE_SIZE },
+                .{ .buffer = frame.buffer.handle, .offset = 0, .range = self.slot_size },
             };
 
             w.updateDescriptorSets(shared.device, &.{

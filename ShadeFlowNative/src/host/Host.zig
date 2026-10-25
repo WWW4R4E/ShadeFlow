@@ -8,9 +8,10 @@
 //! 职责分工：
 //!
 //! - **窗口生命周期**：windowkit 的 `Platform` / `PlatformWindow` 由 `main.zig`
-//!   创建与销毁（它需要活在事件循环之外）；
+//!   创建与销毁（它需要活在主循环之外）；
 //! - **事件翻译**：本模块把 `InputEvent` 落成 `Input` 状态，并在帧边界把状态
-//!   折算成引擎命令；
+//!   折算成引擎命令；帧边界由 `main.zig` 的过程式主循环每轮调用一次
+//!   （`pump` 之后、下一次 `waitEvent` 之前）；
 //! - **坐标归一**：把平台坐标统一成客户区**物理像素**，和 `Viewport` / `Picker`
 //!   同一坐标系。
 //!
@@ -47,7 +48,7 @@ pub const Host = struct {
     // 事件
     // =========================================================================
 
-    /// 输入事件 → 输入状态。命令在帧边界统一发出（见 `onFrame`）。
+    /// 输入事件 → 输入状态。命令在帧边界统一发出（见 `frame`）。
     pub fn onInput(self: *Host, win: *windowkit.PlatformWindow, event: wkInput.InputEvent) void {
         switch (event) {
             .mouse_moved, .mouse_dragged => |m| {
@@ -77,16 +78,17 @@ pub const Host = struct {
     }
 
     /// 帧边界：输入状态 → 引擎命令 → 推进一帧 → 渲染。
-    pub fn onFrame(self: *Host, win: *windowkit.PlatformWindow) void {
+    ///
+    /// 由 `main.zig` 的过程式循环每轮调用；本函数内不再预约节拍——
+    /// 循环本身就是要约。渲染的 vsync 背压由后端 present 提供
+    /// （Vulkan FIFO / swapchain 等待）。
+    pub fn frame(self: *Host, win: *windowkit.PlatformWindow) void {
         self.applyCameraCommands();
         self.applyPick();
         self.applyResize(win);
 
         self.engine.update();
         self.engine.render();
-
-        // 连续渲染：预约下一帧节拍（需要 needs_render 重新置位）。
-        win.requestRender();
     }
 
     // =========================================================================
