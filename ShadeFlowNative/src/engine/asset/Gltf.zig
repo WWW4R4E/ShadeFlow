@@ -476,7 +476,10 @@ fn loadGlb(allocator: std.mem.Allocator, bytes: []const u8) !Scene {
             }
         }
         if (bin_bytes) |bin| {
-            try buffers.append(allocator, bin); // 指向 file_bytes 内部，不另拷贝
+            // buffers 表统一拥有自己的内存（defer 里统一 free）——BIN chunk
+            // 本身指向 file_bytes 内部，必须 dupe。（曾直接 append 切片，free
+            // 时长度不匹配触发 DebugAllocator 报错 + 段错误。）
+            try buffers.append(allocator, try allocator.dupe(u8, bin));
         } else {
             return error.MissingBuffer;
         }
