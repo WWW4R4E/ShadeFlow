@@ -112,8 +112,8 @@ pub fn main() !void {
     const tex_ps_path = try resolveShaderPath(allocator, io, app_dir, tex_ps_name);
     defer allocator.free(tex_ps_path);
 
-    // 资源加载 demo：assets/models/ 下有样例 glTF 就加载（与上面的 primitive
-    // demo 并存）。找不到只 log，不阻塞启动。
+    // 资源加载 demo：assets/models/ 下的 glTF 样例（与上面的 primitive demo
+    // 并存）。找不到只 log，不阻塞启动。
     if (resolveAssetPath(allocator, io, app_dir, "SampleBox.gltf")) |model_path| {
         defer allocator.free(model_path);
         engine.addGltfObject(
@@ -122,14 +122,30 @@ pub fn main() !void {
             ps_path,
             tex_vs_path,
             tex_ps_path,
-            .{ 0.6, 0.0, 1.0 },
+            .{ -1.6, 0.0, 0.8 },
         );
     } else |_| {
         std.log.info("未找到 SampleBox.gltf，跳过 glTF demo", .{});
     }
 
-    // 纹理 demo：贴图 cube（UV cube + 用户图片）。
-    if (resolveAssetPath(allocator, io, app_dir, "SampleTexture.jpg")) |texture_path| {
+    // glTF 贴图链路验证：Khronos 官方 BoxTextured（GLB 内嵌 Cesium logo 贴图，
+    // 走 TEXCOORD_0 + baseColorTexture + bufferView 图片的完整路径）。
+    if (resolveAssetPath(allocator, io, app_dir, "BoxTextured.glb")) |model_path| {
+        defer allocator.free(model_path);
+        engine.addGltfObject(
+            model_path,
+            vs_path,
+            ps_path,
+            tex_vs_path,
+            tex_ps_path,
+            .{ 0.0, 1.6, 0.8 },
+        );
+    } else |_| {
+        std.log.info("未找到 BoxTextured.glb，跳过 glTF 贴图 demo", .{});
+    }
+
+    // 纹理 demo：贴图 cube（UV cube + 壁纸图片）。
+    if (resolveAssetPath(allocator, io, app_dir, "Wallpaper.jpg")) |texture_path| {
         defer allocator.free(texture_path);
 
         const uv_cube = try GeometryGenerators.generateCubeUV(allocator, .{ .size = 0.7 });

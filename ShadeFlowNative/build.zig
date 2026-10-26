@@ -167,6 +167,18 @@ pub fn build(b: *std.Build) void {
     );
     b.getInstallStep().dependOn(&sample_texture.step);
 
+    const wallpaper_texture = b.addInstallFile(
+        b.path("assets/textures/Wallpaper.jpg"),
+        "assets/textures/Wallpaper.jpg",
+    );
+    b.getInstallStep().dependOn(&wallpaper_texture.step);
+
+    const box_textured_model = b.addInstallFile(
+        b.path("assets/models/BoxTextured.glb"),
+        "assets/models/BoxTextured.glb",
+    );
+    b.getInstallStep().dependOn(&box_textured_model.step);
+
     // run 步骤
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
