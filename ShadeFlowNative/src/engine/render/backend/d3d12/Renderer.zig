@@ -3,14 +3,17 @@
 //! 对外契约（与 `Types.zig` 一起）由 `render/Renderer.zig` 转出；`Engine` 只
 //! 通过那层门面使用它。
 //!
-//! 与 D3D11 的核心区别（AGENTS.md 的备忘在这里落地）：
-//! - 没有「设置状态」这种事：光栅化/深度/混合全部烘进 PSO。Renderer 保存
-//!   当前状态，draw 时按「着色器 × 状态组合」查 PSO 缓存，缺了才建。
-//! - 常量缓冲 256 字节对齐：单个 Constants 224B 按 256B 一槽，开
-//!   `buffer_count` 个槽的环形布局，每帧写自己的槽（beginFrame 已用 fence
-//!   保证上一帧 GPU 执行完，槽不会被踩）。
-//! - D3D11 的 D3D11_COMPARISON/D3D11_BLEND 系列枚举在 D3D12 里换了前缀，
-//!   名字一一对应。
+//! 契约以严格后端为基线：管线状态在 `createPipeline` 时烘进 PSO，draw 时
+//! 只做绑定 + 录制，没有「随时改状态」。
+//!
+//! 帧同步差异备忘（与 Vulkan 后端不对齐，待优化）：D3D12 目前每帧
+//! `beginFrame` 里 `waitForGpu`——1 帧 in-flight、「先对后快」；Vulkan 是
+//! 2 帧 in-flight（per-frame fence/semaphore/命令缓冲）。后续优化方向是把
+//! 命令分配器 / 常量环 / fence 扩成双缓冲，去掉 beginFrame 的等待。
+//!
+//! 常量缓冲：单个 Constants 224B 按 256B 一槽（D3D12 要求 256 对齐），
+//! `buffer_count` 个槽的环形布局，draw 时写当前帧的槽——beginFrame 的
+//! fence 等待保证槽不会被上一帧踩。
 
 const std = @import("std");
 
@@ -20,29 +23,20 @@ const Types = @import("render_types");
 const Error = @import("Error.zig");
 
 const BufferImpl = @import("Buffer.zig").Buffer;
+const BufferAlignment = @import("Buffer.zig").constant_buffer_alignment;
 const Device = @import("Device.zig").Device;
 const buffer_count = @import("Device.zig").buffer_count;
-const BufferAlignment = @import("Buffer.zig").constant_buffer_alignment;
+const PipelineImpl = @import("Pipeline.zig").Pipeline;
 const ShaderImpl = @import("Shader.zig").Shader;
 const SwapChain = @import("SwapChain.zig").SwapChain;
 const TextureImpl = @import("Texture.zig").Texture;
-
-/// PSO 缓存键：着色器 id + 全部影响 PSO 的状态。拓扑也算了进去，因为 D3D12
-/// 的 PSO 烘焙 PrimitiveTopologyType（IASetPrimitiveTopology 只能细化成同类型的
-/// 具体拓扑）。
-const PsoKey = struct {
-    shader_id: u64,
-    raster: Types.RasterState,
-    depth: Types.DepthState,
-    blend: Types.BlendMode,
-    topology: Types.Topology,
-};
 
 pub const Renderer = struct {
     // 供门面/场景层使用的资源类型（不含任何方法约定上的后端差异）。
     pub const Buffer = BufferImpl;
     pub const Shader = ShaderImpl;
     pub const Texture = TextureImpl;
+    pub const Pipeline = PipelineImpl;
 
     device: Device,
     swap_chain: SwapChain,
@@ -53,17 +47,8 @@ pub const Renderer = struct {
     width: u32,
     height: u32,
 
-    /// 常量缓冲区按第一次 `setConstants` 的大小懒创建（256 对齐 × 槽数）。
+    /// 常量缓冲区在第一次 draw 按数据大小懒创建（256 对齐 × 槽数）。
     constant_buffer: ?Buffer = null,
-
-    // 当前管线状态。D3D11 是立即上下文直接设；D3D12 只存起来，draw 时组装
-    // PsoKey 查 PSO 缓存。
-    raster_state: Types.RasterState = .{ .fill = .solid, .cull = .back },
-    depth_state: Types.DepthState = .{},
-    blend_mode: Types.BlendMode = .none,
-    topology: Types.Topology = .triangle_list,
-
-    pso_cache: std.AutoHashMapUnmanaged(PsoKey, *win32.ID3D12PipelineState) = .{},
 
     // =========================================================================
     // 初始化
@@ -121,12 +106,6 @@ pub const Renderer = struct {
         // 状态，Device.deinit 里的 waitForGpu 才不会碰上非法状态。
         _ = self.device.command_list.Close();
 
-        var it = self.pso_cache.iterator();
-        while (it.next()) |entry| {
-            _ = entry.value_ptr.*.IUnknown.Release();
-        }
-        self.pso_cache.deinit(std.heap.page_allocator);
-
         if (self.constant_buffer) |*cb| cb.deinit();
         self.releasePipelineResources();
         self.depth_texture.deinit();
@@ -143,7 +122,8 @@ pub const Renderer = struct {
         const list = device.command_list;
 
         // 上一帧（含它引用的所有上传堆内存）必须已执行完，才能 Reset 分配器、
-        // 覆写常量缓冲槽。
+        // 覆写常量缓冲槽。（Vulkan 后端是 2 帧 in-flight，这里是本后端的
+        // 「先对后快」取舍，见文件头备忘。）
         device.waitForGpu();
         Error.check(device.command_allocator.Reset(), "重置命令分配器") catch return;
         Error.check(
@@ -154,7 +134,7 @@ pub const Renderer = struct {
         const index = self.swap_chain.currentBackBufferIndex();
         const back_buffer = self.back_buffers[index] orelse return;
 
-        // PRESENT → RENDER_TARGET。上一帧结束时已转回 PRESENT（= COMMON）。
+        // COMMON（= PRESENT）→ RENDER_TARGET。上一帧结束时已转回。
         const to_rt = transitionBarrier(back_buffer, win32.D3D12_RESOURCE_STATE_COMMON, win32.D3D12_RESOURCE_STATE_RENDER_TARGET);
         list.ResourceBarrier(1, @ptrCast(&to_rt));
 
@@ -232,15 +212,15 @@ pub const Renderer = struct {
     // 资源工厂
     // =========================================================================
 
+    /// 静态顶点缓冲（上传堆一次性写入，创建后只读）。
     pub fn createVertexBuffer(
         self: *Renderer,
         data: []const u8,
         stride: u32,
-        usage: Types.BufferUsage,
     ) !Buffer {
         var buffer = Buffer.init(.vertex);
         errdefer buffer.deinit();
-        try buffer.createVertexBuffer(&self.device, data, stride, usage);
+        try buffer.createVertexBuffer(&self.device, data, stride);
         return buffer;
     }
 
@@ -260,51 +240,31 @@ pub const Renderer = struct {
         return Shader.loadProgram(&self.device, vertex_path, pixel_path, layout);
     }
 
-    /// 每帧更新常量数据；缓冲区在首次调用时按数据大小创建（256 对齐 × 槽数）。
-    pub fn setConstants(self: *Renderer, data: []const u8) !void {
-        if (self.constant_buffer == null) {
-            const slot: u32 = @intCast(std.mem.alignForward(usize, data.len, BufferAlignment));
-            var cb = Buffer.init(.constant);
-            errdefer cb.deinit();
-            try cb.createConstantBuffer(&self.device, slot * buffer_count);
-            self.constant_buffer = cb;
-        }
-
-        if (self.constant_buffer) |*cb| {
-            const offset = BufferAlignment * self.swap_chain.currentBackBufferIndex();
-            cb.updateConstantBuffer(data, offset);
-        }
-    }
-
-    // =========================================================================
-    // 状态（只记录，draw 时进 PSO 键）
-    // =========================================================================
-
-    pub fn setTopology(self: *Renderer, topology: Types.Topology) void {
-        self.topology = topology;
-    }
-
-    pub fn setRasterState(self: *Renderer, state: Types.RasterState) !void {
-        self.raster_state = state;
-    }
-
-    pub fn setBlendMode(self: *Renderer, mode: Types.BlendMode) !void {
-        self.blend_mode = mode;
-    }
-
-    pub fn setDepthState(self: *Renderer, state: Types.DepthState) !void {
-        self.depth_state = state;
+    /// 创建管线：着色器 × 状态一次性烘进 PSO。
+    ///
+    /// `shader` 由调用方持有并保证活得比返回的 Pipeline 久。
+    pub fn createPipeline(
+        self: *Renderer,
+        shader: *const Shader,
+        state: Types.PipelineState,
+    ) !Pipeline {
+        return Pipeline.create(&self.device, shader, state);
     }
 
     // =========================================================================
     // 绘制
     // =========================================================================
 
-    pub fn draw(self: *Renderer, shader: *const Shader, vertex_buffer: *const Buffer, vertex_count: u32) void {
-        const pso = self.currentPso(shader) orelse return;
+    pub fn draw(
+        self: *Renderer,
+        pipeline: *const Pipeline,
+        vertex_buffer: *const Buffer,
+        vertex_count: u32,
+        constants: []const u8,
+    ) void {
         const list = self.device.command_list;
 
-        self.bindShaderCommon(list, shader, pso);
+        self.bindDrawState(list, pipeline, constants);
 
         const vbv = win32.D3D12_VERTEX_BUFFER_VIEW{
             .BufferLocation = vertex_buffer.gpuVirtualAddress(),
@@ -312,21 +272,21 @@ pub const Renderer = struct {
             .StrideInBytes = vertex_buffer.stride,
         };
         list.IASetVertexBuffers(0, 1, @ptrCast(&vbv));
-        list.IASetPrimitiveTopology(mapTopology(self.topology));
+        list.IASetPrimitiveTopology(mapTopology(pipeline.state.topology));
         list.DrawInstanced(vertex_count, 1, 0, 0);
     }
 
     pub fn drawIndexed(
         self: *Renderer,
-        shader: *const Shader,
+        pipeline: *const Pipeline,
         vertex_buffer: *const Buffer,
         index_buffer: *const Buffer,
         index_count: u32,
+        constants: []const u8,
     ) void {
-        const pso = self.currentPso(shader) orelse return;
         const list = self.device.command_list;
 
-        self.bindShaderCommon(list, shader, pso);
+        self.bindDrawState(list, pipeline, constants);
 
         const vbv = win32.D3D12_VERTEX_BUFFER_VIEW{
             .BufferLocation = vertex_buffer.gpuVirtualAddress(),
@@ -341,7 +301,7 @@ pub const Renderer = struct {
             .Format = win32.DXGI_FORMAT_R32_UINT,
         };
         list.IASetIndexBuffer(&ibv);
-        list.IASetPrimitiveTopology(mapTopology(self.topology));
+        list.IASetPrimitiveTopology(mapTopology(pipeline.state.topology));
         list.DrawIndexedInstanced(index_count, 1, 0, 0, 0);
     }
 
@@ -349,144 +309,36 @@ pub const Renderer = struct {
     // 内部
     // =========================================================================
 
-    /// 每次 draw 都要绑的公共状态：根签名 + 当前帧的常量缓冲槽 + PSO。
-    fn bindShaderCommon(
+    /// 每次 draw 都要绑的公共状态：根签名 + 当前帧常量槽 + PSO。
+    fn bindDrawState(
         self: *Renderer,
         list: *win32.ID3D12GraphicsCommandList,
-        shader: *const Shader,
-        pso: *win32.ID3D12PipelineState,
+        pipeline: *const Pipeline,
+        constants: []const u8,
     ) void {
-        list.SetGraphicsRootSignature(shader.root_signature);
-        if (self.constant_buffer) |*cb| {
-            const offset = BufferAlignment * self.swap_chain.currentBackBufferIndex();
-            list.SetGraphicsRootConstantBufferView(0, cb.gpuVirtualAddress() + offset);
-        }
-        list.SetPipelineState(pso);
+        list.SetGraphicsRootSignature(pipeline.shader.root_signature);
+        list.SetPipelineState(pipeline.pso);
+
+        if (constants.len == 0) return;
+        self.ensureConstantBuffer(constants.len) catch |err| {
+            std.log.err("创建常量缓冲区失败: {s}", .{@errorName(err)});
+            return;
+        };
+        const cb = &self.constant_buffer.?;
+        const offset = BufferAlignment * self.swap_chain.currentBackBufferIndex();
+        cb.updateConstantBuffer(constants, offset);
+        list.SetGraphicsRootConstantBufferView(0, cb.gpuVirtualAddress() + offset);
     }
 
-    fn currentPso(self: *Renderer, shader: *const Shader) ?*win32.ID3D12PipelineState {
-        const key = PsoKey{
-            .shader_id = shader.id,
-            .raster = self.raster_state,
-            .depth = self.depth_state,
-            .blend = self.blend_mode,
-            .topology = self.topology,
-        };
-        if (self.pso_cache.get(key)) |pso| return pso;
+    /// 首次 draw 按数据大小建环形常量缓冲（256 对齐 × 后台缓冲数）。
+    fn ensureConstantBuffer(self: *Renderer, data_len: usize) !void {
+        if (self.constant_buffer != null) return;
 
-        const pso = self.createPso(shader, key) catch |err| {
-            std.log.err("创建 PSO 失败: {s}", .{@errorName(err)});
-            return null;
-        };
-        self.pso_cache.put(std.heap.page_allocator, key, pso) catch {
-            _ = pso.IUnknown.Release();
-            return null;
-        };
-        return pso;
-    }
-
-    fn createPso(self: *Renderer, shader: *const Shader, key: PsoKey) !*win32.ID3D12PipelineState {
-        const blend_enabled = key.blend == .alpha;
-        const rt_blend = win32.D3D12_RENDER_TARGET_BLEND_DESC{
-            .BlendEnable = if (blend_enabled) 1 else 0,
-            .LogicOpEnable = 0,
-            .SrcBlend = if (blend_enabled) win32.D3D12_BLEND_SRC_ALPHA else win32.D3D12_BLEND_ONE,
-            .DestBlend = if (blend_enabled) win32.D3D12_BLEND_INV_SRC_ALPHA else win32.D3D12_BLEND_ZERO,
-            .BlendOp = win32.D3D12_BLEND_OP_ADD,
-            .SrcBlendAlpha = win32.D3D12_BLEND_ONE,
-            .DestBlendAlpha = win32.D3D12_BLEND_ZERO,
-            .BlendOpAlpha = win32.D3D12_BLEND_OP_ADD,
-            .LogicOp = win32.D3D12_LOGIC_OP_NOOP,
-            .RenderTargetWriteMask = @intFromEnum(win32.D3D12_COLOR_WRITE_ENABLE_ALL),
-        };
-
-        var rt_formats: [8]win32.DXGI_FORMAT = @splat(win32.DXGI_FORMAT_UNKNOWN);
-        rt_formats[0] = win32.DXGI_FORMAT_R8G8B8A8_UNORM;
-
-        const desc = win32.D3D12_GRAPHICS_PIPELINE_STATE_DESC{
-            .pRootSignature = shader.root_signature,
-            .VS = .{
-                .pShaderBytecode = shader.vs_bytes.ptr,
-                .BytecodeLength = shader.vs_bytes.len,
-            },
-            .PS = .{
-                .pShaderBytecode = shader.ps_bytes.ptr,
-                .BytecodeLength = shader.ps_bytes.len,
-            },
-            .DS = .{ .pShaderBytecode = null, .BytecodeLength = 0 },
-            .HS = .{ .pShaderBytecode = null, .BytecodeLength = 0 },
-            .GS = .{ .pShaderBytecode = null, .BytecodeLength = 0 },
-            .StreamOutput = .{
-                .pSODeclaration = null,
-                .NumEntries = 0,
-                .pBufferStrides = null,
-                .NumStrides = 0,
-                .RasterizedStream = 0,
-            },
-            .BlendState = .{
-                .AlphaToCoverageEnable = 0,
-                .IndependentBlendEnable = 0,
-                .RenderTarget = @splat(rt_blend),
-            },
-            .SampleMask = std.math.maxInt(u32),
-            .RasterizerState = .{
-                .FillMode = switch (key.raster.fill) {
-                    .solid => win32.D3D12_FILL_MODE_SOLID,
-                    .wireframe => win32.D3D12_FILL_MODE_WIREFRAME,
-                },
-                .CullMode = switch (key.raster.cull) {
-                    .none => win32.D3D12_CULL_MODE_NONE,
-                    .front => win32.D3D12_CULL_MODE_FRONT,
-                    .back => win32.D3D12_CULL_MODE_BACK,
-                },
-                .FrontCounterClockwise = if (key.raster.front_counter_clockwise) 1 else 0,
-                .DepthBias = 0,
-                .DepthBiasClamp = 0.0,
-                .SlopeScaledDepthBias = 0.0,
-                .DepthClipEnable = 1,
-                .MultisampleEnable = 0,
-                .AntialiasedLineEnable = 0,
-                .ForcedSampleCount = 0,
-                .ConservativeRaster = win32.D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
-            },
-            .DepthStencilState = .{
-                .DepthEnable = if (key.depth.depth_test) 1 else 0,
-                .DepthWriteMask = if (key.depth.write)
-                    win32.D3D12_DEPTH_WRITE_MASK_ALL
-                else
-                    win32.D3D12_DEPTH_WRITE_MASK_ZERO,
-                .DepthFunc = mapCompareFunc(key.depth.compare),
-                .StencilEnable = 0,
-                .StencilReadMask = 0,
-                .StencilWriteMask = 0,
-                .FrontFace = default_stencil_op,
-                .BackFace = default_stencil_op,
-            },
-            .InputLayout = .{
-                .pInputElementDescs = if (shader.input_elements.len == 0) null else &shader.input_elements[0],
-                .NumElements = @intCast(shader.input_elements.len),
-            },
-            .IBStripCutValue = .DISABLED,
-            .PrimitiveTopologyType = switch (key.topology) {
-                .triangle_list => win32.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-                .line_list => win32.D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
-                .point_list => win32.D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,
-            },
-            .NumRenderTargets = 1,
-            .RTVFormats = rt_formats,
-            .DSVFormat = win32.DXGI_FORMAT_D32_FLOAT,
-            .SampleDesc = .{ .Count = 1, .Quality = 0 },
-            .NodeMask = 0,
-            .CachedPSO = .{ .pCachedBlob = null, .CachedBlobSizeInBytes = 0 },
-            .Flags = win32.D3D12_PIPELINE_STATE_FLAG_NONE,
-        };
-
-        var pso: ?*win32.ID3D12PipelineState = null;
-        try Error.check(
-            self.device.d3d_device.CreateGraphicsPipelineState(&desc, win32.IID_ID3D12PipelineState, @ptrCast(&pso)),
-            "创建图形 PSO",
-        );
-        return pso.?;
+        const slot: u32 = @intCast(std.mem.alignForward(usize, data_len, BufferAlignment));
+        var cb = Buffer.init(.constant);
+        errdefer cb.deinit();
+        try cb.createConstantBuffer(&self.device, slot * buffer_count);
+        self.constant_buffer = cb;
     }
 
     fn createPipelineResources(self: *Renderer, width: u32, height: u32) !void {
@@ -526,13 +378,6 @@ pub const Renderer = struct {
 // 枚举映射
 // =============================================================================
 
-const default_stencil_op = win32.D3D12_DEPTH_STENCILOP_DESC{
-    .StencilFailOp = win32.D3D12_STENCIL_OP_KEEP,
-    .StencilDepthFailOp = win32.D3D12_STENCIL_OP_KEEP,
-    .StencilPassOp = win32.D3D12_STENCIL_OP_KEEP,
-    .StencilFunc = win32.D3D12_COMPARISON_FUNC.ALWAYS,
-};
-
 fn transitionBarrier(
     resource: *win32.ID3D12Resource,
     before: win32.D3D12_RESOURCE_STATES,
@@ -555,18 +400,5 @@ fn mapTopology(topology: Types.Topology) win32.D3D_PRIMITIVE_TOPOLOGY {
         .triangle_list => win32.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
         .line_list => win32.D3D_PRIMITIVE_TOPOLOGY_LINELIST,
         .point_list => win32.D3D_PRIMITIVE_TOPOLOGY_POINTLIST,
-    };
-}
-
-fn mapCompareFunc(func: Types.CompareFunc) win32.D3D12_COMPARISON_FUNC {
-    return switch (func) {
-        .never => win32.D3D12_COMPARISON_FUNC.NEVER,
-        .less => win32.D3D12_COMPARISON_FUNC.LESS,
-        .equal => win32.D3D12_COMPARISON_FUNC.EQUAL,
-        .less_equal => win32.D3D12_COMPARISON_FUNC.LESS_EQUAL,
-        .greater => win32.D3D12_COMPARISON_FUNC.GREATER,
-        .not_equal => win32.D3D12_COMPARISON_FUNC.NOT_EQUAL,
-        .greater_equal => win32.D3D12_COMPARISON_FUNC.GREATER_EQUAL,
-        .always => win32.D3D12_COMPARISON_FUNC.ALWAYS,
     };
 }

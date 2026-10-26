@@ -68,7 +68,7 @@ pub fn main() !void {
     // 着色器按 exe 目录相对定位（zig-out/bin/../shaders/，与 compile_shaders.bat
     // 和 build.zig 的安装位置一致）。两边都用 fs.path.join，不再写死 `\\`。
     //
-    // 后缀跟随后端而不是操作系统：Windows 默认 D3D11（fxc 的 .cso），
+    // 后缀跟随后端而不是操作系统：Windows 默认 D3D12（dxc 的 .cso），
     // `-Dbackend=vulkan` 时和 Linux 一样读 SPIR-V（.spv）。
     const vs_name = switch (shader_format) {
         .dxbc => "Basic3DVS.cso",

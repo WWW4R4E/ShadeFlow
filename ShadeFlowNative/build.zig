@@ -44,8 +44,8 @@ pub fn build(b: *std.Build) void {
     const windows_backend = b.option(
         []const u8,
         "backend",
-        "Windows 渲染后端：d3d11（默认）、d3d12 或 vulkan（macOS/Linux 固定 vulkan）",
-    ) orelse "d3d11";
+        "Windows 渲染后端：d3d12（默认）或 vulkan（d3d11 已冻结待删；macOS/Linux 固定 vulkan）",
+    ) orelse "d3d12";
     const valid_backends = [_][]const u8{ "d3d11", "d3d12", "vulkan" };
     for (valid_backends) |valid| {
         if (std.mem.eql(u8, windows_backend, valid)) break;

@@ -17,24 +17,13 @@ const std = @import("std");
 /// 不会出现另一种值。
 pub const BackendKind = enum { d3d11, d3d12, vulkan };
 
-/// 着色器二进制格式：D3D11 是 fxc 产出的 DXBC（`.cso`），Vulkan 是 SPIR-V
-/// （`.spv`）。`main.zig` 按它选文件后缀。
+/// 着色器二进制格式：D3D12 是 dxc 产出的 DXBC/DXIL（`.cso`），Vulkan 是
+/// SPIR-V（`.spv`）。`main.zig` 按它选文件后缀。
 pub const ShaderFormat = enum { dxbc, spirv };
 
 // =============================================================================
-// 缓冲区
+// 图元拓扑
 // =============================================================================
-
-/// 缓冲区用途。
-///
-/// - `immutable`：创建后不再修改（几何数据首选）；
-/// - `default`：GPU 侧资源，初始化时给一次数据；
-/// - `dynamic`：CPU 每帧写入（常量缓冲区）。
-pub const BufferUsage = enum {
-    immutable,
-    default,
-    dynamic,
-};
 
 /// 图元拓扑。
 pub const Topology = enum {
@@ -87,6 +76,21 @@ pub const RasterState = struct {
     cull: CullMode = .back,
     /// 逆时针为正面。D3D 的默认是顺时针，Vulkan 默认是逆时针。
     front_counter_clockwise: bool = false,
+};
+
+/// 显式管线的不变状态：创建 `Pipeline` 时整体定型，绘制期间不可变。
+///
+/// 这是契约以「严格后端」为基线的结果——D3D12 烘进 PSO、Vulkan 烘进
+/// `VkPipeline`，不存在「随时改状态」这个操作。默认值是重构前两个后端的
+/// **实际生效状态**（D3D11/Vulkan 的 Renderer 字段默认值，Engine 从不覆盖）。
+/// 注意 `cull` 是 `.none` 而不是 `RasterState` 的结构体默认 `.back`：几何
+/// 生成器的面绕序还没按 D3D 约定审计过，贸然开背面剔除会把正面剔掉
+/// （表现为立方体「破洞」、后面的物体透出来，像遮挡错误）。
+pub const PipelineState = struct {
+    raster: RasterState = .{ .fill = .solid, .cull = .none },
+    depth: DepthState = .{},
+    blend: BlendMode = .none,
+    topology: Topology = .triangle_list,
 };
 
 // =============================================================================

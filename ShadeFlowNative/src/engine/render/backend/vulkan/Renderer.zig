@@ -1,13 +1,13 @@
 //! Vulkan 渲染后端（Windows / Win32、Linux / Wayland、macOS / Metal via MoltenVK）。
 //!
-//! 帧流程与 D3D11 后端的语义对齐，但 Vulkan 要求 CPU 显式管同步：
+//! 帧流程（2 帧 in-flight，D3D12 后端当前是每帧等 GPU 的 1 帧，差异记在
+//! 那边）：
 //!
 //! ```text
 //! beginFrame:  等本帧栅栏 → acquire 图像 → 录命令 → clear + 渲染通道开始
-//! setConstants: 写进本帧的常量缓冲环，记下 dynamic offset
-//! draw*:        绑管线/描述符/顶点缓冲 → 录绘制
-//! endFrame:     渲染通道结束 → 提交（等 acquire 信号量、发 present 信号量）
-//!               → present（等 present 信号量）→ 帧号 +1
+//! draw*:       常量写进本帧的缓冲环 → 绑管线/描述符/顶点缓冲 → 录绘制
+//! endFrame:    渲染通道结束 → 提交（等 acquire 信号量、发 present 信号量）
+//!              → present（等 present 信号量）→ 帧号 +1
 //! ```
 //!
 //! Y 轴翻转、绕序、管线状态的后端差异都记在 `Pipeline.zig` 顶部注释里。
@@ -22,7 +22,8 @@ const BufferImpl = @import("Buffer.zig").Buffer;
 const Descriptor = @import("Descriptor.zig").Descriptor;
 const Device = @import("Device.zig").Device;
 const Instance = @import("Instance.zig").Instance;
-const Pipeline = @import("Pipeline.zig");
+const PipelineImpl = @import("Pipeline.zig").Pipeline;
+const pipeline_mod = @import("Pipeline.zig");
 const ShaderImpl = @import("Shader.zig").Shader;
 const SwapChain = @import("SwapChain.zig").SwapChain;
 const Sync = @import("Sync.zig").Sync;
@@ -40,13 +41,14 @@ pub const Renderer = struct {
     pub const Buffer = BufferImpl;
     pub const Shader = ShaderImpl;
     pub const Texture = TextureImpl;
+    pub const Pipeline = PipelineImpl;
 
     instance: Instance,
     device: Device,
     swap_chain: SwapChain,
     sync: Sync,
     /// 常量缓冲 + 描述符。布局在 init 就建好（着色器要用 pipeline layout），
-    /// 环形缓冲在第一次 `setConstants` 按数据大小建。
+    /// 环形缓冲在第一次 draw 按数据大小建。
     descriptor: Descriptor,
 
     width: u32,
@@ -57,14 +59,6 @@ pub const Renderer = struct {
     /// 本帧是否成功开始。`beginFrame` 契约上返回 void，acquire 失败时置 false，
     /// 后续 draw / endFrame 直接跳过，避免往无效命令缓冲里录命令。
     frame_active: bool = false,
-    /// 本帧常量数据在环形缓冲里的偏移（dynamic offset）。
-    constants_offset: vk.DeviceSize = 0,
-
-    // 当前管线状态。D3D11 是独立对象，Vulkan 转成 PSO 缓存键。
-    topology: Types.Topology = .triangle_list,
-    raster_state: Types.RasterState = .{ .fill = .solid, .cull = .none },
-    depth_state: Types.DepthState = .{},
-    blend_mode: Types.BlendMode = .none,
 
     // =========================================================================
     // 初始化
@@ -271,13 +265,13 @@ pub const Renderer = struct {
     // 资源工厂
     // =========================================================================
 
+    /// 静态顶点缓冲（device-local + 一次性上传，创建后只读）。
     pub fn createVertexBuffer(
         self: *Renderer,
         data: []const u8,
         stride: u32,
-        usage: Types.BufferUsage,
     ) !Buffer {
-        return Buffer.createVertexBuffer(self.device.shared, data, stride, usage);
+        return Buffer.createVertexBuffer(self.device.shared, data, stride);
     }
 
     pub fn createIndexBuffer(self: *Renderer, indices: []const u32) !Buffer {
@@ -302,66 +296,56 @@ pub const Renderer = struct {
         );
     }
 
-    /// 每帧更新常量数据；环形缓冲在首次调用时按数据大小创建。
+    /// 创建管线：着色器 × 状态一次性烤进 `VkPipeline`。
     ///
-    /// 之所以按帧分槽而不是所有 draw 共用一块：命令缓冲是录完再提交的，
-    /// 共用一块会让后一个对象的变换覆盖前一个。详见 `Descriptor.zig`。
-    pub fn setConstants(self: *Renderer, data: []const u8) !void {
-        const frame = self.frame_index % frames_in_flight;
-        self.constants_offset = try self.descriptor.writeConstants(frame, data);
-    }
-
-    // =========================================================================
-    // 状态
-    //
-    // 这里只记录状态；Vulkan 的 PSO 要把状态烤进去，所以真正的管线在 draw 时
-    // 按需创建并缓存（见 `Shader.getPipeline`），切状态本身不会失败。
-    // =========================================================================
-
-    pub fn setTopology(self: *Renderer, topology: Types.Topology) void {
-        self.topology = topology;
-    }
-
-    pub fn setRasterState(self: *Renderer, state: Types.RasterState) !void {
-        self.raster_state = state;
-    }
-
-    pub fn setBlendMode(self: *Renderer, mode: Types.BlendMode) !void {
-        self.blend_mode = mode;
-    }
-
-    pub fn setDepthState(self: *Renderer, state: Types.DepthState) !void {
-        self.depth_state = state;
+    /// `shader` 由调用方持有并保证活得比返回的 Pipeline 久。
+    pub fn createPipeline(
+        self: *Renderer,
+        shader: *const Shader,
+        state: Types.PipelineState,
+    ) !Pipeline {
+        // 管线创建只需要 shader 自带的 pipeline context（layout/render pass 都
+        // 在加载着色器时定好了），renderer 自身不参与。
+        _ = self;
+        return PipelineImpl.create(shader, state);
     }
 
     // =========================================================================
     // 绘制
     // =========================================================================
 
-    pub fn draw(self: *Renderer, shader: *const Shader, vertex_buffer: *const Buffer, vertex_count: u32) void {
-        self.drawInner(shader, vertex_buffer, null, vertex_count) catch |err| {
+    pub fn draw(
+        self: *Renderer,
+        pipeline: *const Pipeline,
+        vertex_buffer: *const Buffer,
+        vertex_count: u32,
+        constants: []const u8,
+    ) void {
+        self.drawInner(pipeline, vertex_buffer, null, vertex_count, constants) catch |err| {
             std.log.err("Vulkan draw 失败: {s}", .{@errorName(err)});
         };
     }
 
     pub fn drawIndexed(
         self: *Renderer,
-        shader: *const Shader,
+        pipeline: *const Pipeline,
         vertex_buffer: *const Buffer,
         index_buffer: *const Buffer,
         index_count: u32,
+        constants: []const u8,
     ) void {
-        self.drawInner(shader, vertex_buffer, index_buffer, index_count) catch |err| {
+        self.drawInner(pipeline, vertex_buffer, index_buffer, index_count, constants) catch |err| {
             std.log.err("Vulkan drawIndexed 失败: {s}", .{@errorName(err)});
         };
     }
 
     fn drawInner(
         self: *Renderer,
-        shader: *const Shader,
+        pipeline: *const Pipeline,
         vertex_buffer: *const Buffer,
         index_buffer: ?*const Buffer,
         count: u32,
+        constants: []const u8,
     ) !void {
         if (!self.frame_active) return;
         const descriptor = &self.descriptor;
@@ -370,20 +354,18 @@ pub const Renderer = struct {
         const w = &shared.wrapper;
         const cmd = self.sync.commandBuffer(self.frame_index % frames_in_flight);
 
-        // `getPipeline` 会往 PSO 缓存里写；契约给的是 `*const Shader`（与
-        // D3D11 一致），这里去一次 const——缓存变化不影响对象语义。
-        const mutable_shader: *Shader = @constCast(shader);
-        const pipeline = try mutable_shader.getPipeline(.{
-            .topology = self.topology,
-            .raster = self.raster_state,
-            .depth = self.depth_state,
-            .blend = self.blend_mode,
-        });
+        w.cmdBindPipeline(cmd, .graphics, pipeline.handle);
 
-        w.cmdBindPipeline(cmd, .graphics, pipeline);
+        // 之所以每个 draw 一个新槽而不是共用一块：命令缓冲是录完再提交的，
+        // 共用会让后一个对象的常量覆盖前一个。详见 `Descriptor.zig`。
+        var constants_offset: vk.DeviceSize = 0;
+        if (constants.len != 0) {
+            const frame = self.frame_index % frames_in_flight;
+            constants_offset = try descriptor.writeConstants(frame, constants);
+        }
 
         const sets = [_]vk.DescriptorSet{descriptor.currentSet(self.frame_index % frames_in_flight)};
-        const dynamic_offsets = [_]u32{@intCast(self.constants_offset)};
+        const dynamic_offsets = [_]u32{@intCast(constants_offset)};
         w.cmdBindDescriptorSets(cmd, .graphics, descriptor.pipeline_layout, 0, &sets, &dynamic_offsets);
 
         vertex_buffer.bindVertexBuffer(cmd, 0);

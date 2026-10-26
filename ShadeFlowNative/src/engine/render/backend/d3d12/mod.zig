@@ -6,6 +6,7 @@ pub const Renderer = @import("Renderer.zig").Renderer;
 pub const Device = @import("Device.zig").Device;
 pub const Buffer = @import("Buffer.zig").Buffer;
 pub const Shader = @import("Shader.zig").Shader;
+pub const Pipeline = @import("Pipeline.zig").Pipeline;
 pub const Texture = @import("Texture.zig").Texture;
 pub const SwapChain = @import("SwapChain.zig").SwapChain;
 pub const Error = @import("Error.zig");

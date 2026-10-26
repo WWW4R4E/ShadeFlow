@@ -150,21 +150,28 @@ pub const Engine = struct {
         var vertex_buffer = try renderer.createVertexBuffer(
             std.mem.sliceAsBytes(vertices),
             @sizeOf(Vertex),
-            .immutable,
         );
         errdefer vertex_buffer.deinit();
 
-        var shader = try renderer.createShaderFromFiles(
+        // Shader 堆分配：Pipeline 借用它，必须保证地址在 append/扩容后不变
+        // （见 Object.shader 的注释）。
+        const shader = try self.allocator.create(Renderer.Shader);
+        errdefer self.allocator.destroy(shader);
+        shader.* = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
             RendererTypes.position_color,
         );
         errdefer shader.deinit();
 
+        const pipeline = try renderer.createPipeline(shader, .{});
+        errdefer { var p = pipeline; p.deinit(); }
+
         try self.render_objects.append(self.allocator, RenderObject{
             .object = .{
                 .vertex_buffer = vertex_buffer,
                 .shader = shader,
+                .pipeline = pipeline,
                 .transform = .{ .position = position },
                 .local_aabb = computeLocalAabb(vertices),
             },
@@ -185,24 +192,31 @@ pub const Engine = struct {
         var vertex_buffer = try renderer.createVertexBuffer(
             std.mem.sliceAsBytes(vertices),
             @sizeOf(Vertex),
-            .immutable,
         );
         errdefer vertex_buffer.deinit();
 
         var index_buffer = try renderer.createIndexBuffer(indices);
         errdefer index_buffer.deinit();
 
-        var shader = try renderer.createShaderFromFiles(
+        // Shader 堆分配：Pipeline 借用它，必须保证地址在 append/扩容后不变
+        // （见 Object.shader 的注释）。
+        const shader = try self.allocator.create(Renderer.Shader);
+        errdefer self.allocator.destroy(shader);
+        shader.* = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
             RendererTypes.position_color,
         );
         errdefer shader.deinit();
 
+        const pipeline = try renderer.createPipeline(shader, .{});
+        errdefer { var p = pipeline; p.deinit(); }
+
         try self.indexed_render_objects.append(self.allocator, IndexedRenderObject{
             .object = .{
                 .vertex_buffer = vertex_buffer,
                 .shader = shader,
+                .pipeline = pipeline,
                 .transform = .{ .position = position },
                 .local_aabb = computeLocalAabb(vertices),
             },
@@ -367,7 +381,7 @@ pub const Engine = struct {
         const view_matrix = self.camera.getViewMatrix();
         const proj_matrix = self.camera.getProjectionMatrix();
 
-        // 渲染普通对象
+        // 渲染普通对象：常量随 draw 传入（后端写自己的环形槽位）。
         for (self.render_objects.items) |*render_object| {
             const object = &render_object.object;
             const constants = self.buildConstants(
@@ -377,11 +391,12 @@ pub const Engine = struct {
                 proj_matrix,
             );
 
-            renderer.setConstants(std.mem.asBytes(&constants)) catch |err| {
-                std.log.err("更新常量缓冲区失败: {s}", .{@errorName(err)});
-                continue;
-            };
-            renderer.draw(&object.shader, &object.vertex_buffer, object.vertex_buffer.count);
+            renderer.draw(
+                &object.pipeline,
+                &object.vertex_buffer,
+                object.vertex_buffer.count,
+                std.mem.asBytes(&constants),
+            );
         }
 
         // 渲染索引对象
@@ -394,15 +409,12 @@ pub const Engine = struct {
                 proj_matrix,
             );
 
-            renderer.setConstants(std.mem.asBytes(&constants)) catch |err| {
-                std.log.err("更新常量缓冲区失败: {s}", .{@errorName(err)});
-                continue;
-            };
             renderer.drawIndexed(
-                &object.shader,
+                &object.pipeline,
                 &object.vertex_buffer,
                 &indexed_render_object.index_buffer,
                 indexed_render_object.index_count,
+                std.mem.asBytes(&constants),
             );
         }
 

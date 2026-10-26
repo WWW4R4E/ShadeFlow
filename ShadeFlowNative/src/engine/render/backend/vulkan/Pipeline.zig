@@ -1,8 +1,12 @@
 //! 图形管线（PSO）。
 //!
-//! D3D11 把光栅/深度/混合做成独立状态对象，draw 时分别绑定；Vulkan 要求这些
-//! 状态连同着色器、顶点布局、render pass 一起烤进一个 `VkPipeline`。所以这里
-//! 按「状态组合 → 管线」创建，由 `Shader` 缓存，避免每次切状态都重建。
+//! 契约以严格后端为基线：光栅/深度/混合/拓扑连同着色器、顶点布局、render
+//! pass 一起烤进一个 `VkPipeline`，在 `createPipeline` 时一次性定型——没有
+//! 「随时改状态」这个操作（旧的按状态组合缓存方案随之消亡）。
+//!
+//! `Pipeline` 借用 `Shader`（shader modules、顶点输入、pipeline layout 都在
+//! 那边），**不拥有它**：调用方保证 Shader 比 Pipeline 活得久，析构顺序
+//! pipeline → shader。
 //!
 //! ## Y 轴与绕序
 //!
@@ -21,8 +25,39 @@ const vk = @import("vulkan");
 
 const Types = @import("render_types");
 const Device = @import("Device.zig").Device;
+const Shader = @import("Shader.zig").Shader;
 
-/// 影响 PSO 的那部分管线状态。D3D11 里它们是分开绑的，这里合成一个键。
+/// 显式管线对象：状态定型后的 `VkPipeline`。
+pub const Pipeline = struct {
+    /// 借用，不拥有。
+    shader: *const Shader,
+    state: Types.PipelineState,
+    handle: vk.Pipeline,
+
+    pub fn create(shader: *const Shader, state: Types.PipelineState) !Pipeline {
+        const handle = try createVk(
+            shader.pipeline_context,
+            .{ .vertex = shader.vertex_module, .fragment = shader.fragment_module },
+            shader.bindings[0..1],
+            shader.attributes[0..shader.attribute_count],
+            .{
+                .topology = state.topology,
+                .raster = state.raster,
+                .depth = state.depth,
+                .blend = state.blend,
+            },
+        );
+        return .{ .shader = shader, .state = state, .handle = handle };
+    }
+
+    pub fn deinit(self: *Pipeline) void {
+        const shared = self.shader.shared;
+        if (self.handle != .null) shared.wrapper.destroyPipeline(shared.device, self.handle, null);
+        self.handle = .null;
+    }
+};
+
+/// 影响 PSO 的那部分管线状态（内部创建参数；公开契约用 `Types.PipelineState`）。
 pub const State = struct {
     topology: Types.Topology,
     raster: Types.RasterState,
@@ -41,7 +76,7 @@ pub const Modules = struct {
     fragment: vk.ShaderModule,
 };
 
-pub fn create(
+pub fn createVk(
     context: Context,
     modules: Modules,
     bindings: []const vk.VertexInputBindingDescription,

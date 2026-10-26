@@ -34,17 +34,14 @@ pub const Buffer = struct {
     // 创建
     // =========================================================================
 
+    /// 静态顶点缓冲：device-local + 一次性上传，创建后只读。
+    /// （动态顶点缓冲 host-visible + CPU 直写等真有需求时再加参数分支。）
     pub fn createVertexBuffer(
         shared: *const Device.Shared,
         data: []const u8,
         stride: u32,
-        usage: Types.BufferUsage,
     ) !Buffer {
         if (stride == 0) return error.InvalidStride;
-        // `usage` 的 immutable/default/dynamic 在 Vulkan 侧都走同一套「device-local +
-        // 一次性上传」：引擎目前没有创建后重写顶点数据的路径，动态顶点缓冲
-        // （host-visible + CPU 直写）等真有需求时再按这个参数分支。
-        _ = usage;
 
         var buffer = try createDeviceLocal(shared, data, .{ .vertex_buffer = true });
         buffer.count = @intCast(data.len / stride);

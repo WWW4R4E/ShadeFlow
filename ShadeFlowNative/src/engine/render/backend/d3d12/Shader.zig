@@ -1,12 +1,10 @@
 //! D3D12 着色器程序：VS/PS 字节码（DXC 编的 DXIL）+ 输入布局 + 根签名。
 //!
-//! 与 D3D11 的本质区别：着色器+状态不再各自是独立对象，而是合进一个 PSO。
-//! 但 `createShaderFromFiles` 的契约拿不到光栅化/深度/混合状态（它们在
-//! Renderer 上、且每帧可变），所以这里只存字节码和布局，PSO 由 Renderer 按
-//! 「着色器 × 状态组合」惰性建、带缓存——也就是 AGENTS.md 里说的 PSO 缓存。
+//! 着色器只承载「程序 + 输入布局 + 根签名」；光栅化/深度/混合/拓扑由
+//! `Pipeline.zig` 在创建时连同这里的字节码一起烘进 PSO。
 //!
-//! 根签名固定为一个根 CBV（b0，对所有着色阶段可见）：与 D3D11 后端把常量
-//! 缓冲同时绑到 VS/PS 的 b0 槽位一致，HLSL 不用改。
+//! 根签名固定为一个根 CBV（b0，对所有着色阶段可见），draw 时绑定当前帧的
+//! 常量槽，HLSL 不用改。
 
 const std = @import("std");
 
@@ -16,12 +14,7 @@ const Types = @import("render_types");
 const Device = @import("Device.zig").Device;
 const Error = @import("Error.zig");
 
-// PSO 缓存的键里用 id 而不是指针：Shader 销毁后新 Shader 可能复用同一地址，
-// 按地址缓存会把旧 PSO 错配给新着色器。id 单调递增，不会撞。
-var next_shader_id: u64 = 0;
-
 pub const Shader = struct {
-    id: u64,
     vs_bytes: []u8,
     ps_bytes: []u8,
     /// 输入布局描述（堆分配，deinit 释放）。语义名字指向 Types 里的静态字符串。
@@ -58,7 +51,6 @@ pub const Shader = struct {
 
         const allocator = std.heap.page_allocator;
         var shader: Shader = .{
-            .id = nextShaderId(),
             .vs_bytes = vs_bytes,
             .ps_bytes = ps_bytes,
             .input_elements = try allocator.alloc(win32.D3D12_INPUT_ELEMENT_DESC, layout.elements.len),
@@ -100,11 +92,6 @@ pub const Shader = struct {
     // =========================================================================
     // 内部
     // =========================================================================
-
-    fn nextShaderId() u64 {
-        next_shader_id += 1;
-        return next_shader_id;
-    }
 
     fn createRootSignature(device: *Device) !*win32.ID3D12RootSignature {
         const root_params = [_]win32.D3D12_ROOT_PARAMETER{.{

@@ -1,9 +1,8 @@
-//! 着色器程序：SPIR-V 模块 + 顶点输入描述 + 按状态缓存的图形管线。
+//! 着色器程序：SPIR-V 模块 + 顶点输入描述 + 管线创建上下文。
 //!
-//! 与 D3D11 后端不同，Vulkan 的「着色器」不只是两个模块：顶点输入布局要进
-//! PSO，管线状态（光栅/深度/混合/拓扑）也要一起烤进去。所以这里同时持有
-//! 模块和一个按 `Pipeline.State` 键控的 PSO 缓存——`Renderer` 每次切状态
-//! 都会调 `getPipeline`，命中就不必重建。
+//! 着色器只承载「程序 + 顶点输入描述」；管线状态（光栅/深度/混合/拓扑）由
+//! `Pipeline.zig` 在创建时连同这里的模块一起烤进 `VkPipeline`（D3D12 侧烘进
+//! PSO，两边同构）。
 //!
 //! 顶点属性的 location 取元素在 `Types.VertexLayout` 里的下标，GLSL 侧用
 //! `layout(location = n)` 对齐即可。
@@ -30,7 +29,6 @@ pub const Shader = struct {
     attribute_count: u32,
 
     pipeline_context: Pipeline.Context,
-    pipelines: std.AutoHashMap(Pipeline.State, vk.Pipeline),
 
     pub fn loadProgram(
         pipeline_context: Pipeline.Context,
@@ -75,7 +73,6 @@ pub const Shader = struct {
             .attributes = undefined,
             .attribute_count = 0,
             .pipeline_context = pipeline_context,
-            .pipelines = .init(std.heap.page_allocator),
         };
         errdefer shader.deinit();
 
@@ -83,49 +80,15 @@ pub const Shader = struct {
         return shader;
     }
 
-    /// 取（或按需创建）给定状态组合的管线。
-    pub fn getPipeline(self: *Shader, state: Pipeline.State) !vk.Pipeline {
-        const found = self.pipelines.get(state);
-        if (found) |pipeline| return pipeline;
-
-        const pipeline = try Pipeline.create(
-            self.pipeline_context,
-            .{ .vertex = self.vertex_module, .fragment = self.fragment_module },
-            self.bindings[0..1],
-            self.attributes[0..self.attribute_count],
-            state,
-        );
-        try self.pipelines.put(state, pipeline);
-        return pipeline;
-    }
-
     pub fn deinit(self: *Shader) void {
         const shared = self.shared;
         const w = &shared.wrapper;
-
-        var it = self.pipelines.valueIterator();
-        while (it.next()) |pipeline| {
-            if (pipeline.* != .null) w.destroyPipeline(shared.device, pipeline.*, null);
-        }
-        self.pipelines.deinit();
 
         if (self.vertex_module != .null) w.destroyShaderModule(shared.device, self.vertex_module, null);
         if (self.fragment_module != .null) w.destroyShaderModule(shared.device, self.fragment_module, null);
 
         self.vertex_module = .null;
         self.fragment_module = .null;
-    }
-
-    /// 交换链格式变了导致 render pass 变化时，所有缓存的 PSO 都失效。
-    pub fn invalidatePipelines(self: *Shader) void {
-        const shared = self.shared;
-        const w = &shared.wrapper;
-
-        var it = self.pipelines.valueIterator();
-        while (it.next()) |pipeline| {
-            if (pipeline.* != .null) w.destroyPipeline(shared.device, pipeline.*, null);
-        }
-        self.pipelines.clearRetainingCapacity();
     }
 
     // =========================================================================

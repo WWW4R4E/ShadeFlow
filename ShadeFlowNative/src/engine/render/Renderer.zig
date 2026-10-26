@@ -8,12 +8,13 @@
 //!   Types.zig         ← 后端中立的描述类型
 //!   backend/
 //!     mod.zig         ← 按目标平台/构建选项编译期选后端
-//!     d3d11/          ← Windows（默认）
-//!     vulkan/         ← Windows（`-Dbackend=vulkan`）/ Linux
+//!     d3d12/          ← Windows（默认）
+//!     vulkan/         ← Windows（`-Dbackend=vulkan`）/ Linux / macOS
+//!     d3d11/          ← 已冻结待删（契约重构后不再满足新契约）
 //! ```
 //!
 //! `Engine.zig`、`scene/`、`root.zig` 只 import `render/Renderer.zig`；任何
-//! `@import(".../backend/d3d11/...")` 出现在这些文件里都视为分层回退。
+//! `@import(".../backend/d3d12/...")` 出现在这些文件里都视为分层回退。
 //!
 //! 这里用类型别名而不是再包一层结构体：与 windowkit 的
 //! `Platform = backend.Platform` 一致，编译期单态、零分派开销，同时由
@@ -34,6 +35,7 @@ pub const shader_format = backend.shader_format;
 pub const Buffer = Renderer.Buffer;
 pub const Shader = Renderer.Shader;
 pub const Texture = Renderer.Texture;
+pub const Pipeline = Renderer.Pipeline;
 
 pub const Types = @import("render_types");
 

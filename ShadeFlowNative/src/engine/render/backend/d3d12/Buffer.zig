@@ -30,15 +30,13 @@ pub const Buffer = struct {
         return .{ .buffer_type = buffer_type };
     }
 
-    /// 顶点缓冲：`stride` 是单顶点字节数。
+    /// 顶点缓冲：`stride` 是单顶点字节数。静态只读——上传堆一次性写入。
     pub fn createVertexBuffer(
         self: *Buffer,
         device: *Device,
         data: []const u8,
         stride: u32,
-        usage: @import("render_types").BufferUsage,
     ) !void {
-        _ = usage; // D3D12 没有 D3D11那种 USAGE 提示；上传堆天然可 CPU 写。
         try self.createUpload(device, @intCast(data.len));
         @memcpy(self.mapped_ptr.?[0..data.len], data);
         self.stride = stride;
