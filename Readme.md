@@ -2,7 +2,9 @@
 
 ## 项目概述
 
-ShadeFlow 是一个结合 Zig 原生图形引擎和 WinUI 3 现代界面的图形应用开发框架。项目采用模块化架构，支持实时着色器编辑和可视化节点编程。
+ShadeFlow 是一个结合 Zig 原生图形引擎和 WinUI 3 现代界面的图形应用开发框架。项目采用模块化架构，目标是支持实时着色器编辑和可视化节点编程。
+
+当前引擎已具备：跨平台渲染（D3D12 / Vulkan）、显式管线抽象、glTF 网格与贴图导入、PNG/JPEG 纹理解码与采样、顶点法线与方向光。
 
 ## 项目结构
 
@@ -18,17 +20,23 @@ ShadeFlow/
 │   │   │   ├── root.zig      # 模块根：对外的类型出口
 │   │   │   ├── Engine.zig    # 引擎主体（只认命令，不认输入设备）
 │   │   │   ├── Time.zig      # 帧计时
+│   │   │   ├── asset/        # 资源解析：Gltf.zig（glTF 2.0）/ Png.zig（zigimg）
 │   │   │   ├── math/         # Aabb / Matrix / Quaternion（纯数学）
-│   │   │   ├── scene/        # 变换、对象、几何生成
+│   │   │   ├── scene/        # 变换、对象、几何生成（含 UV cube）
 │   │   │   ├── view/         # 相机与拾取
 │   │   │   └── render/       # 渲染门面（Types.zig + Renderer.zig）
-│   │   │       └── backend/  # 具体后端：d3d11（Windows）/ vulkan（Linux、macOS/MoltenVK）
+│   │   │       └── backend/  # d3d12（Windows 默认）/ vulkan（Linux、macOS/MoltenVK）
+│   │   │                    #   d3d11/ 已冻结待删（不满足显式管线契约）
 │   │   ├── capi.zig          # Windows 专用 C-ABI 导出（WinUI 3 / Composition）
 │   │   ├── main.zig          # 独立窗口宿主入口
 │   │   └── tests.zig         # zig build test 的用例收集根
-│   ├── assets/shaders/       # HLSL / GLSL 源码
+│   ├── assets/
+│   │   ├── shaders/          # HLSL / GLSL 源码（基础 + 带纹理两套管线）
+│   │   ├── models/           # 样例模型（SampleBox.gltf / BoxTextured.glb）
+│   │   └── textures/         # 样例贴图
 │   ├── vendor/vk.xml         # Vulkan registry（构建期生成绑定）
-│   ├── compile_shaders.bat   # 着色器编译脚本（fxc → .cso）
+│   ├── compile_shaders.bat        # D3D11 着色器（fxc，已冻结）
+│   ├── compile_shaders_d3d12.bat  # D3D12 着色器（dxc，SM 6.0）
 │   └── build.zig             # Zig 构建配置
 ├── ShadeFlowUI/              # WinUI 3 界面项目
 │   ├── Views/                # 界面视图
@@ -54,36 +62,47 @@ ShadeFlow/
 
 | 平台 | 渲染后端 | 窗口 |
 |---|---|---|
-| Windows | Direct3D 11（D3D12 计划中） | WinUI 3 `SwapChainPanel` 或独立 HWND |
+| Windows | Direct3D 12（默认）/ Vulkan | WinUI 3 `SwapChainPanel` 或独立 HWND |
 | Linux | Vulkan | Wayland（windowkit） |
 | macOS | Vulkan（MoltenVK） | AppKit + `CAMetalLayer`（windowkit） |
 
-后端在 `src/engine/render/backend/mod.zig` 按 `builtin.os.tag` 编译期选择；
-`Engine` / `scene` 只依赖 `render/Types.zig` 与门面类型，不能直接 import 任何
-`backend/<api>/`。
-
+- Windows 用 `-Dbackend=vulkan` 切 Vulkan；`-Dbackend=d3d11` 不可用（D3D11
+  后端已冻结待删，编译期契约检查会直接报错）。
+- 渲染契约以「严格后端」为基线：管线状态在 `createPipeline` 时定型
+  （D3D12 烘进 PSO、Vulkan 烤进 `VkPipeline`），常量与纹理随 draw 参数传入，
+  没有 D3D11 式的即时状态修改。
+- 帧同步差异备忘：D3D12 当前每帧等 GPU（1 帧 in-flight），Vulkan 是
+  2 帧 in-flight；后续把 D3D12 扩成双缓冲对齐。
 
 ## 核心特性
 
 ### 🎯 双模式渲染引擎
-- **Composition 模式**: 专为 WinUI 3 集成设计，支持现代 UI 框架
-- **HWND 模式**: 传统窗口模式，用于独立测试和调试
+- **Composition 模式**：专为 WinUI 3 集成设计（D3D12 支持，Vulkan 不支持）
+- **HWND 模式**：传统窗口模式，用于独立测试和调试
 
-### 🎨 实时着色器编辑
-- 支持 HLSL 着色器实时编译和预览
-- 可视化节点编辑器，所见即所得
-- 动态着色器加载，无需重启应用
+### 📦 资源加载
+- **glTF 2.0**：`.gltf` / `.glb` / 内嵌 base64 / 外部 `.bin` / 外部图片；
+  每 primitive 一个渲染对象，`baseColorTexture` 贴图走 TEXCOORD 采样路径，
+  无贴图时用 `COLOR_0` > 材质 `baseColorFactor` > 白色
+- **图片解码**：zigimg（PNG / JPEG / BMP 等），统一转 RGBA8 上传 GPU
+- glTF 的右手系 → 引擎左手投影的转换（X 取反）在解析器内完成
+
+### 🎨 渲染
+- 两套顶点布局：`POSITION+COLOR+NORMAL`（顶点色）与
+  `POSITION+NORMAL+TEXCOORD`（贴图），按布局自动选择着色器变体
+- 方向光 half-lambert 光照（常量缓冲传光照方向 + 环境光强度）
+- 纹理采样（linear / repeat），无纹理对象绑 1×1 白色默认纹理
 
 ### 🔧 模块化架构
-- 清晰的职责分离：引擎核心、渲染器、资源管理
-- 可选的窗口和输入系统，便于集成
+- 清晰的职责分离：宿主（窗口/输入）、引擎核心、渲染门面、后端实现
+- 后端契约在编译期检查（`backend/mod.zig`），缺方法直接编译失败
 - 统一的 C# 互操作接口
 
 ## 快速开始
 
 ### 环境要求
 - Zig 编译器 (0.17.0)
-- Windows 10/11 SDK（D3D11 后端）
+- Windows 10/11 SDK（D3D12 后端用 `dxc` 编着色器，脚本里 SDK 路径写死需按本机调整）
 - Vulkan 后端：`glslc`（Vulkan SDK / shaderc；也可用 `-Dglslc=<path>` 指定）
 - Linux：Wayland + `libvulkan.so.1`（运行时加载器）；绑定由 `vendor/vk.xml` 生成
 - Windows 想跑 Vulkan：内嵌 loader 从 `vulkan-1.dll` 运行时加载，驱动装好即可
@@ -94,9 +113,12 @@ ShadeFlow/
 ### 构建 Zig 引擎
 ```bash
 cd ShadeFlowNative
-zig build dll    # Windows：构建 DLL 并复制到 ShadeFlowUI
-zig build run    # 独立运行测试（Windows 默认 D3D11）
-zig build run -Dbackend=vulkan   # Windows 切到 Vulkan 后端
+zig build run    # Linux/macOS：Vulkan（glslc 自动编 SPIR-V）
+
+# Windows
+zig build run    # 默认 D3D12；先跑 compile_shaders_d3d12.bat 编着色器
+zig build dll    # 构建 DLL 并复制到 ShadeFlowUI（Composition 模式）
+zig build run -Dbackend=vulkan   # 切 Vulkan 后端
 
 # macOS：Vulkan 固定走 MoltenVK
 zig build run    # 开发时直接跑 zig-out/bin/ShadeFlowNative
@@ -106,7 +128,7 @@ zig build app    # 打包 zig-out/ShadeFlow.app（双击启动）
 zig build typecheck-macos
 ```
 
-### 运行独立测试
+### 运行单元测试
 ```bash
-zig build run
+zig build test   # 宿主输入状态 + 引擎数学 + 顶点布局自洽 + glTF/PNG 解析器
 ```
