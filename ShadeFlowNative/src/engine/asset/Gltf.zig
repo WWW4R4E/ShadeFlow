@@ -1,34 +1,55 @@
-//! glTF 2.0 网格解析器（本轮范围：只取几何，不含节点层级/变换、法线、UV、纹理）。
+//! glTF 2.0 网格解析器（几何 + baseColorTexture；不含节点层级/变换、法线、
+//! 光照类纹理）。
 //!
 //! 两层 API：
-//! - `parseFromMemory`：纯内存解析（JSON 字节 + 已备好的 buffer 字节表），
+//! - `parseFromMemory`：纯内存解析（JSON 字节 + buffer 字节表 + 图片字节表），
 //!   不碰文件系统，测试直接喂内嵌数据。
-//! - `load`：文件入口，处理 `.gltf`（内嵌 base64 data URI / 外部 `.bin`）与
-//!   `.glb` 二进制容器两种封装，把 buffer 备齐后转调 `parseFromMemory`。
+//! - `load`：文件入口，处理 `.gltf`（内嵌 base64 data URI / 外部文件）与
+//!   `.glb` 二进制容器两种封装，把 buffer/image 字节备齐后转调
+//!   `parseFromMemory`。
 //!
-//! 属性支持：`POSITION`（必须，VEC3 f32）+ `COLOR_0`（可选，VEC3/VEC4 的
-//! f32 或归一化 u8/u16）。缺 COLOR_0 时回退材质 `baseColorFactor`，再回退
-//! 白色。多个 primitive 合并为单个索引网格（顶点拼接 + 索引偏移），引擎侧
-//! 一个对象一次 draw。
+//! 结构：**每个 primitive 一个 `Part`**（同材质合并的优化以后再说不迟）。
+//! 有 `baseColorTexture` 的 part 走 `vertices_tex`（POSITION+TEXCOORD）+
+//! `image`（图片原始编码字节，Engine 用 zigimg 解码后建 GPU 纹理）；没有的
+//! 走 `vertices`（POSITION+COLOR_0 > 材质 baseColorFactor > 白色）。
 //!
 //! 坐标系：glTF 是 Y-up 右手系，引擎投影是 D3D 风格左手系——X 取反做
-//! RH→LH 转换（真机验证过：不翻转模型会左右镜像）。cull 目前是 none，
-//! 翻转带来的绕序变化无副作用；将来开背面剔除时要重新审计。
+//! RH→LH 转换（真机验证过：不翻转模型会左右镜像）。UV 原点约定两边一致
+//! （左上），透传。cull 目前是 none，翻转带来的绕序变化无副作用。
 
 const std = @import("std");
 
 const Types = @import("render_types");
 
-/// 解析出的几何：引擎 `Vertex`（position + color）+ u32 索引。
-pub const Geometry = struct {
-    vertices: []Types.Vertex,
+/// 单个渲染单元 = 一个 primitive。`vertices`/`vertices_tex` 二选一：
+/// 有 `image`（baseColorTexture）走后者。
+pub const Part = struct {
+    vertices: []Types.Vertex = &.{},
+    vertices_tex: []Types.VertexTex = &.{},
     indices: []u32,
+    /// 图片原始编码字节（PNG/JPEG，指向 `images[]` 的解码前内容）。
+    image: ?[]u8 = null,
 
-    pub fn deinit(self: *Geometry, allocator: std.mem.Allocator) void {
-        allocator.free(self.vertices);
+    pub fn deinit(self: *Part, allocator: std.mem.Allocator) void {
+        if (self.vertices.len != 0) allocator.free(self.vertices);
+        if (self.vertices_tex.len != 0) allocator.free(self.vertices_tex);
         allocator.free(self.indices);
+        if (self.image) |img| allocator.free(img);
         self.vertices = &.{};
+        self.vertices_tex = &.{};
         self.indices = &.{};
+        self.image = null;
+    }
+};
+
+/// 解析结果：全部 mesh 的 part 列表。
+pub const Scene = struct {
+    parts: []Part,
+
+    pub fn deinit(self: *Scene, allocator: std.mem.Allocator) void {
+        for (self.parts) |*part| part.deinit(allocator);
+        allocator.free(self.parts);
+        self.parts = &.{};
     }
 };
 
@@ -36,8 +57,14 @@ pub const Geometry = struct {
 // JSON 场景描述（std.json，忽略未知字段——glTF 扩展字段直接放过）
 // =============================================================================
 
+const TextureInfo = struct {
+    index: i64,
+    texCoord: ?i64 = null,
+};
+
 const PbrMetallicRoughness = struct {
     baseColorFactor: ?[4]f32 = null,
+    baseColorTexture: ?TextureInfo = null,
 };
 
 const Material = struct {
@@ -47,6 +74,7 @@ const Material = struct {
 const PrimitiveAttributes = struct {
     POSITION: ?i64 = null,
     COLOR_0: ?i64 = null,
+    TEXCOORD_0: ?i64 = null,
 };
 
 const Primitive = struct {
@@ -88,6 +116,17 @@ const Buffer = struct {
     byteLength: i64 = 0,
 };
 
+const Texture = struct {
+    source: ?i64 = null,
+};
+
+/// 图片来源三选一：uri（外部文件 / data URI）、GLB 内嵌（bufferView）。
+const Image = struct {
+    uri: ?[]const u8 = null,
+    bufferView: ?i64 = null,
+    mimeType: ?[]const u8 = null,
+};
+
 const GltfJson = struct {
     asset: struct { version: []const u8 = "" } = .{},
     scenes: []const struct{ nodes: []const i64 = &.{} } = &.{},
@@ -96,6 +135,8 @@ const GltfJson = struct {
     bufferViews: []const BufferView = &.{},
     buffers: []const Buffer = &.{},
     materials: []const Material = &.{},
+    textures: []const Texture = &.{},
+    images: []const Image = &.{},
 };
 
 // =============================================================================
@@ -109,6 +150,7 @@ const ParseError = error{
     UnsupportedIndexComponentType,
     UnsupportedColorComponentType,
     MissingPositionAttribute,
+    MissingTexCoord,
     MissingBuffer,
     MissingBufferView,
     MissingIndices,
@@ -117,15 +159,16 @@ const ParseError = error{
     EmptyMesh,
 };
 
-/// 从 JSON + buffer 字节表解析全部 mesh 的几何（多 primitive 合并）。
+/// 从 JSON + buffer/image 字节表解析全部 mesh。
 ///
-/// `buffers` 的生命周期只需覆盖本次调用；返回的 `Geometry` 由调用方
+/// `buffers`/`images` 的生命周期只需覆盖本次调用；返回的 `Scene` 由调用方
 /// `deinit(allocator)` 释放。
 pub fn parseFromMemory(
     allocator: std.mem.Allocator,
     json_bytes: []const u8,
     buffers: []const []const u8,
-) (ParseError || std.json.ParseError(std.json.Scanner) || std.mem.Allocator.Error)!Geometry {
+    images: []const []const u8,
+) (ParseError || std.json.ParseError(std.json.Scanner) || std.mem.Allocator.Error)!Scene {
     var parsed = try std.json.parseFromSlice(GltfJson, allocator, json_bytes, .{
         .ignore_unknown_fields = true,
     });
@@ -135,55 +178,100 @@ pub fn parseFromMemory(
     if (gltf.asset.version.len != 0 and !std.mem.startsWith(u8, gltf.asset.version, "2"))
         return error.UnsupportedGltfVersion;
 
-    var vertices: std.ArrayList(Types.Vertex) = .empty;
-    errdefer vertices.deinit(allocator);
-    var indices: std.ArrayList(u32) = .empty;
-    errdefer indices.deinit(allocator);
+    var parts: std.ArrayList(Part) = .empty;
+    errdefer {
+        for (parts.items) |*part| part.deinit(allocator);
+        parts.deinit(allocator);
+    }
 
     for (gltf.meshes) |mesh| {
         for (mesh.primitives) |primitive| {
-            const base_vertex: u32 = @intCast(vertices.items.len);
-
-            // 颜色来源优先级：COLOR_0 > 材质 baseColorFactor > 白色。
-            const fallback_color = fallbackColorOf(&gltf, &primitive);
+            // baseColorTexture：材质 → texture → source image 字节。
+            const image_index = baseColorImageIndex(&gltf, &primitive);
+            const textured = if (image_index) |ii|
+                ii < images.len and images[ii].len != 0
+            else
+                false;
 
             const position_acc = try accessorOf(&gltf, primitive.attributes.POSITION);
             if (!std.mem.eql(u8, position_acc.@"type", "VEC3") or position_acc.componentType != component_type_f32)
                 return error.UnsupportedComponentType;
 
-            const color_acc: ?*const Accessor = if (primitive.attributes.COLOR_0) |ci|
-                try accessorOf(&gltf, ci)
-            else
-                null;
-
+            const count: usize = @intCast(position_acc.count);
             const pos_view = try viewOf(&gltf, position_acc);
             const pos_bytes = try viewBytes(buffers, pos_view, position_acc.byteOffset, @intCast(position_acc.count * 12));
 
-            const color_view: ?*const BufferView = if (color_acc) |ca| try viewOf(&gltf, ca) else null;
-            const color_bytes: ?[]const u8 = if (color_acc != null)
-                try viewBytes(buffers, color_view.?, color_acc.?.byteOffset, colorAccesorBytes(color_acc.?, @intCast(position_acc.count)))
-            else
-                null;
+            var part = Part{ .indices = &.{} };
 
-            const count: usize = @intCast(position_acc.count);
-            try vertices.ensureUnusedCapacity(allocator, count);
-            for (0..count) |i| {
-                const pos: [3]f32 = @bitCast(pos_bytes[i * 12 ..][0..12].*);
+            if (textured) {
+                // ---- 带纹理路径：POSITION + TEXCOORD_0，图片字节挂到 part ----
+                const uv_acc: *const Accessor = blk: {
+                    if (primitive.attributes.TEXCOORD_0) |ti| break :blk try accessorOf(&gltf, ti);
+                    return error.MissingTexCoord;
+                };
+                if (!std.mem.eql(u8, uv_acc.@"type", "VEC2"))
+                    return error.UnsupportedAccessorType;
+                if (uv_acc.count != position_acc.count)
+                    return error.BufferTooSmall;
 
-                var color: [4]f32 = fallback_color;
-                if (color_acc) |ca| {
-                    const stride: i64 = @intCast(componentSize(ca) * vectorLength(ca));
-                    color = readColor(ca, color_bytes.?[0 .. @intCast(ca.count * stride)], i);
+                const uv_view = try viewOf(&gltf, uv_acc);
+                const uv_stride_bytes: usize = componentSize(uv_acc) * 2;
+                const uv_needed: i64 = uv_acc.count * @as(i64, @intCast(uv_stride_bytes));
+                const uv_bytes = try viewBytes(buffers, uv_view, uv_acc.byteOffset, @intCast(uv_needed));
+
+                var vertices_tex = try allocator.alloc(Types.VertexTex, count);
+                errdefer allocator.free(vertices_tex);
+                for (0..count) |i| {
+                    const pos: [3]f32 = @bitCast(pos_bytes[i * 12 ..][0..12].*);
+                    vertices_tex[i] = .{
+                        // RH→LH：X 取反（见文件头坐标系说明）。
+                        .position = .{ -pos[0], pos[1], pos[2] },
+                        .uv = readUV(uv_acc, uv_bytes, i),
+                    };
                 }
+                part.vertices_tex = vertices_tex;
 
-                vertices.appendAssumeCapacity(.{
-                    // RH→LH：X 取反（见文件头坐标系说明）。
-                    .position = .{ -pos[0], pos[1], pos[2] },
-                    .color = color,
-                });
+                const ii: usize = @intCast(image_index.?);
+                part.image = try allocator.dupe(u8, images[ii]);
+            } else {
+                // ---- 无纹理路径：POSITION +（COLOR_0 > 材质色 > 白）----
+                const fallback_color = fallbackColorOf(&gltf, &primitive);
+                const color_acc: ?*const Accessor = if (primitive.attributes.COLOR_0) |ci|
+                    try accessorOf(&gltf, ci)
+                else
+                    null;
+
+                const color_view: ?*const BufferView = if (color_acc) |ca| try viewOf(&gltf, ca) else null;
+                const color_bytes: ?[]const u8 = if (color_acc != null)
+                    try viewBytes(buffers, color_view.?, color_acc.?.byteOffset, colorAccesorBytes(color_acc.?, @intCast(position_acc.count)))
+                else
+                    null;
+
+                var vertices = try allocator.alloc(Types.Vertex, count);
+                errdefer allocator.free(vertices);
+                for (0..count) |i| {
+                    const pos: [3]f32 = @bitCast(pos_bytes[i * 12 ..][0..12].*);
+
+                    var color: [4]f32 = fallback_color;
+                    if (color_acc) |ca| {
+                        const stride: i64 = @intCast(componentSize(ca) * vectorLength(ca));
+                        color = readColor(ca, color_bytes.?[0 .. @intCast(ca.count * stride)], i);
+                    }
+
+                    vertices[i] = .{
+                        // RH→LH：X 取反（见文件头坐标系说明）。
+                        .position = .{ -pos[0], pos[1], pos[2] },
+                        .color = color,
+                    };
+                }
+                part.vertices = vertices;
             }
 
-            // 索引：无索引 primitive 直接展开成 i=0..count。
+            // 索引（part 内局部编号；无索引 primitive 展开成 i=0..count）。
+            const index_total: usize = if (primitive.indices) |ii| @intCast(try indexCount(&gltf, ii)) else count;
+            var indices = try allocator.alloc(u32, index_total);
+            errdefer allocator.free(indices);
+
             if (primitive.indices) |ii| {
                 const index_acc = try accessorOf(&gltf, ii);
                 if (!std.mem.eql(u8, index_acc.@"type", "SCALAR"))
@@ -193,31 +281,76 @@ pub fn parseFromMemory(
                 const needed: i64 = index_acc.count * @as(i64, @intCast(component_size));
                 const index_bytes = try viewBytes(buffers, index_view, index_acc.byteOffset, @intCast(needed));
 
-                try indices.ensureUnusedCapacity(allocator, @intCast(index_acc.count));
                 for (0..@intCast(index_acc.count)) |i| {
-                    const raw: u32 = switch (index_acc.componentType) {
+                    indices[i] = switch (index_acc.componentType) {
                         component_type_u8 => index_bytes[i],
                         component_type_u16 => std.mem.readInt(u16, index_bytes[i * 2 ..][0..2], .little),
                         component_type_u32 => std.mem.readInt(u32, index_bytes[i * 4 ..][0..4], .little),
                         else => return error.UnsupportedIndexComponentType,
                     };
-                    indices.appendAssumeCapacity(raw + base_vertex);
                 }
             } else {
-                try indices.ensureUnusedCapacity(allocator, count);
                 for (0..count) |i| {
-                    indices.appendAssumeCapacity(base_vertex + @as(u32, @intCast(i)));
+                    indices[i] = @intCast(i);
                 }
             }
+            part.indices = indices;
+
+            try parts.append(allocator, part);
         }
     }
 
-    if (vertices.items.len == 0) return error.EmptyMesh;
+    if (parts.items.len == 0) return error.EmptyMesh;
 
-    return .{
-        .vertices = try vertices.toOwnedSlice(allocator),
-        .indices = try indices.toOwnedSlice(allocator),
-    };
+    return .{ .parts = try parts.toOwnedSlice(allocator) };
+}
+
+/// baseColorTexture → image 下标；没有贴图返回 null。
+fn baseColorImageIndex(gltf: *const GltfJson, primitive: *const Primitive) ?usize {
+    const material_index = primitive.material orelse return null;
+    if (material_index < 0 or material_index >= @as(i64, @intCast(gltf.materials.len))) return null;
+    const pbr = gltf.materials[@intCast(material_index)].pbrMetallicRoughness orelse return null;
+    const tex_info = pbr.baseColorTexture orelse return null;
+    if (tex_info.texCoord) |tc| {
+        if (tc != 0) return null; // 多套 UV 不支持，按无贴图处理
+    }
+    const tex_index = tex_info.index;
+    if (tex_index < 0 or tex_index >= @as(i64, @intCast(gltf.textures.len))) return null;
+    const source = gltf.textures[@intCast(tex_index)].source orelse return null;
+    if (source < 0) return null;
+    return @intCast(source);
+}
+
+/// 读一行 UV（VEC2；f32 或归一化 u8/u16）。
+fn readUV(accessor: *const Accessor, bytes: []const u8, index: usize) [2]f32 {
+    const size = componentSize(accessor);
+    const row = bytes[index * 2 * size ..][0 .. 2 * size];
+    if (accessor.componentType == component_type_f32) {
+        const u: f32 = @bitCast(std.mem.readInt(u32, row[0..4], .little));
+        const v: f32 = @bitCast(std.mem.readInt(u32, row[4..8], .little));
+        return .{ u, v };
+    }
+    var uv: [2]f32 = .{ 0, 0 };
+    inline for (0..2) |c| {
+        uv[c] = switch (accessor.componentType) {
+            component_type_u16 => blk: {
+                const raw = std.mem.readInt(u16, row[c * 2 ..][0..2], .little);
+                const v: f32 = @floatFromInt(raw);
+                break :blk if (accessor.normalized) v / 65535.0 else v;
+            },
+            component_type_u8 => blk: {
+                const v: f32 = @floatFromInt(row[c]);
+                break :blk if (accessor.normalized) v / 255.0 else v;
+            },
+            else => 0.0,
+        };
+    }
+    return uv;
+}
+
+fn indexCount(gltf: *const GltfJson, index: i64) !i64 {
+    const acc = try accessorOf(gltf, index);
+    return acc.count;
 }
 
 // =============================================================================
@@ -229,8 +362,9 @@ const chunk_json: u32 = 0x4E4F534A; // "JSON"
 const chunk_bin: u32 = 0x004E4942; // "BIN\0"
 
 /// 读入 `.gltf` / `.glb` 并解析。buffer 来源三选一：data URI（base64）、
-/// `.gltf` 同目录的外部 `.bin`、`.glb` 的 BIN chunk。
-pub fn load(allocator: std.mem.Allocator, path: []const u8) !Geometry {
+/// `.gltf` 同目录的外部文件、`.glb` 的 BIN chunk；图片同（外部文件 /
+/// data URI / GLB bufferView）。
+pub fn load(allocator: std.mem.Allocator, path: []const u8) !Scene {
     const io = std.Io.Threaded.global_single_threaded.io();
     const file_bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(512 * 1024 * 1024));
     defer allocator.free(file_bytes);
@@ -241,7 +375,7 @@ pub fn load(allocator: std.mem.Allocator, path: []const u8) !Geometry {
     return loadGltfJson(allocator, path, file_bytes);
 }
 
-fn loadGltfJson(allocator: std.mem.Allocator, path: []const u8, json_bytes: []const u8) !Geometry {
+fn loadGltfJson(allocator: std.mem.Allocator, path: []const u8, json_bytes: []const u8) !Scene {
     var parsed = try std.json.parseFromSlice(GltfJson, allocator, json_bytes, .{
         .ignore_unknown_fields = true,
     });
@@ -270,10 +404,30 @@ fn loadGltfJson(allocator: std.mem.Allocator, path: []const u8, json_bytes: []co
         }
     }
 
-    return parseFromMemory(allocator, json_bytes, buffers.items);
+    // 图片字节表：外部文件 / data URI。
+    var images: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (images.items) |b| allocator.free(b);
+        images.deinit(allocator);
+    }
+    for (parsed.value.images) |image| {
+        if (image.uri) |uri| {
+            if (dataUriBase64(uri)) |b64| {
+                try images.append(allocator, try decodeBase64(allocator, b64));
+            } else {
+                const img_path = try std.fs.path.join(allocator, &.{ dir, uri });
+                defer allocator.free(img_path);
+                try images.append(allocator, try std.Io.Dir.cwd().readFileAlloc(io, img_path, allocator, .limited(256 * 1024 * 1024)));
+            }
+        } else {
+            try images.append(allocator, ""); // 无来源的 image 按缺失处理
+        }
+    }
+
+    return parseFromMemory(allocator, json_bytes, buffers.items, images.items);
 }
 
-fn loadGlb(allocator: std.mem.Allocator, bytes: []const u8) !Geometry {
+fn loadGlb(allocator: std.mem.Allocator, bytes: []const u8) !Scene {
     // 头：magic(4) version(4) total_length(4)；之后是 8 字节对齐的 chunk
     // 序列（length(4) type(4) data...）。
     const total_length = std.mem.readInt(u32, bytes[8..12], .little);
@@ -328,7 +482,34 @@ fn loadGlb(allocator: std.mem.Allocator, bytes: []const u8) !Geometry {
         }
     }
 
-    return parseFromMemory(allocator, json, buffers.items);
+    // 图片字节表：bufferView 内嵌 / data URI / 外部文件。
+    var images: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (images.items) |b| allocator.free(b);
+        images.deinit(allocator);
+    }
+    for (parsed.value.images) |image| {
+        if (image.bufferView) |bvi| {
+            if (bvi < 0 or bvi >= @as(i64, @intCast(parsed.value.bufferViews.len)))
+                return error.MissingBuffer;
+            const view = parsed.value.bufferViews[@intCast(bvi)];
+            const data = buffers.items[@intCast(view.buffer)];
+            const start: usize = @intCast(view.byteOffset);
+            if (start + @as(usize, @intCast(view.byteLength)) > data.len) return error.BufferTooSmall;
+            // images 表统一拥有自己的内存（defer 里统一 free），这里 dupe 一份。
+            try images.append(allocator, try allocator.dupe(u8, data[start .. start + @as(usize, @intCast(view.byteLength))]));
+        } else if (image.uri) |uri| {
+            if (dataUriBase64(uri)) |b64| {
+                try images.append(allocator, try decodeBase64(allocator, b64));
+            } else {
+                try images.append(allocator, ""); // GLB 里不允许外部文件，按缺失处理
+            }
+        } else {
+            try images.append(allocator, "");
+        }
+    }
+
+    return parseFromMemory(allocator, json, buffers.items, images.items);
 }
 
 // =============================================================================
@@ -526,51 +707,109 @@ fn testBuffers(allocator: std.mem.Allocator) ![]u8 {
     return bytes;
 }
 
-test "parseFromMemory: 双 primitive 合并、颜色回退与索引偏移" {
+test "parseFromMemory: 双 primitive 拆 Part、颜色回退与局部索引" {
     var allocator_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer allocator_state.deinit();
     const allocator = allocator_state.allocator();
 
     const buffer = try testBuffers(allocator);
-    var geometry = try parseFromMemory(allocator, test_json, &.{buffer});
-    defer geometry.deinit(allocator);
+    var scene = try parseFromMemory(allocator, test_json, &.{buffer}, &.{});
+    defer scene.deinit(allocator);
 
-    // 3 + 2 个顶点，3 + 4 个索引。
-    try testing.expectEqual(@as(usize, 5), geometry.vertices.len);
-    try testing.expectEqual(@as(usize, 7), geometry.indices.len);
+    // 每个 primitive 一个 part：3 顶点 + 2 顶点。
+    try testing.expectEqual(@as(usize, 2), scene.parts.len);
+    try testing.expectEqual(@as(usize, 3), scene.parts[0].vertices.len);
+    try testing.expectEqual(@as(usize, 2), scene.parts[1].vertices.len);
 
-    // p0 显式 COLOR_0。
-    try testing.expectEqual([4]f32{ 1, 0, 0, 1 }, geometry.vertices[0].color);
-    // p1 无 COLOR_0 → 材质 baseColorFactor 回退。
-    try testing.expectEqual([4]f32{ 0.1, 0.2, 0.3, 1.0 }, geometry.vertices[3].color);
+    // p0 显式 COLOR_0；p1 无 COLOR_0 → 材质 baseColorFactor 回退。
+    try testing.expectEqual([4]f32{ 1, 0, 0, 1 }, scene.parts[0].vertices[0].color);
+    try testing.expectEqual([4]f32{ 0.1, 0.2, 0.3, 1.0 }, scene.parts[1].vertices[0].color);
 
-    // p1 索引带 base_vertex 偏移：0,1,3,2 → 3,4,6,5。
-    try testing.expectEqual(@as(u32, 3), geometry.indices[3]);
-    try testing.expectEqual(@as(u32, 6), geometry.indices[5]);
-    try testing.expectEqual(@as(u32, 5), geometry.indices[6]);
+    // 索引是 part 内局部编号：0,2,1 / 0,1,3,2。
+    try testing.expectEqual(@as(u32, 0), scene.parts[0].indices[0]);
+    try testing.expectEqual(@as(u32, 1), scene.parts[0].indices[2]);
+    try testing.expectEqual(@as(u32, 3), scene.parts[1].indices[2]);
 }
 
-test "load: 仓库样例 SampleBox.gltf（双 primitive 合并）" {
+test "parseFromMemory: baseColorTexture → 带纹理 Part" {
+    var allocator_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer allocator_state.deinit();
+    const allocator = allocator_state.allocator();
+
+    // 1x1 PNG（数据 URI 之外直接给字节表）。
+    const tiny_png = [_]u8{
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+        0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
+        0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    };
+
+    const json =
+        \\{
+        \\  "asset": {"version": "2.0"},
+        \\  "meshes": [{"primitives": [{
+        \\    "attributes": {"POSITION": 0, "TEXCOORD_0": 1},
+        \\    "indices": 2,
+        \\    "material": 0
+        \\  }]}],
+        \\  "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        \\  "textures": [{"source": 0}],
+        \\  "images": [{"bufferView": 1, "mimeType": "image/png"}],
+        \\  "accessors": [
+        \\    {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+        \\    {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC2", "byteOffset": 36},
+        \\    {"bufferView": 0, "componentType": 5123, "count": 3, "type": "SCALAR", "byteOffset": 60}
+        \\  ],
+        \\  "bufferViews": [
+        \\    {"buffer": 0, "byteOffset": 0, "byteLength": 66}
+        \\  ],
+        \\  "buffers": [{"byteLength": 66}]
+        \\}
+    ;
+
+    // buffer：3 位置(36B) + 3 UV(24B) + 3 u16 索引(6B) = 66B。
+    const buffer = try allocator.alloc(u8, 66);
+    @memset(buffer, 0);
+    std.mem.writeInt(u16, buffer[60..62], 0, .little);
+    std.mem.writeInt(u16, buffer[62..64], 1, .little);
+    std.mem.writeInt(u16, buffer[64..66], 2, .little);
+
+    var scene = try parseFromMemory(allocator, json, &.{buffer}, &.{&tiny_png});
+    defer scene.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 1), scene.parts.len);
+    const part = &scene.parts[0];
+    try testing.expectEqual(@as(usize, 3), part.vertices_tex.len);
+    try testing.expectEqual(@as(usize, 0), part.vertices.len);
+    try testing.expect(part.image != null);
+    try testing.expectEqualSlices(u8, &tiny_png, part.image.?);
+    // RH→LH：位置 X 取反。
+    try testing.expectEqual(@as(f32, -0.0), part.vertices_tex[0].position[0]);
+}
+
+test "load: 仓库样例 SampleBox.gltf（双 primitive 拆 Part）" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     // zig build test 的 cwd 是构建根；文件不在就跳过（不当作失败）。
-    var geometry = load(allocator, "assets/models/SampleBox.gltf") catch |err| {
+    var scene = load(allocator, "assets/models/SampleBox.gltf") catch |err| {
         if (err == error.FileNotFound) return;
         return err;
     };
-    defer geometry.deinit(allocator);
+    defer scene.deinit(allocator);
 
-    // 两个 cube：16 顶点、72 索引。
-    try testing.expectEqual(@as(usize, 16), geometry.vertices.len);
-    try testing.expectEqual(@as(usize, 72), geometry.indices.len);
-    // 两个 primitive 分别取到材质红/蓝（无 COLOR_0 回退路径）。
-    try testing.expectApproxEqAbs(@as(f32, 0.95), geometry.vertices[0].color[0], 0.001);
-    try testing.expectApproxEqAbs(@as(f32, 0.95), geometry.vertices[8].color[2], 0.001);
+    // 每个 cube 一个 part：8 顶点、36 索引。
+    try testing.expectEqual(@as(usize, 2), scene.parts.len);
+    try testing.expectEqual(@as(usize, 8), scene.parts[0].vertices.len);
+    try testing.expectEqual(@as(usize, 36), scene.parts[0].indices.len);
+    // 两个 part 分别取到材质红/蓝（无 COLOR_0 回退路径）。
+    try testing.expectApproxEqAbs(@as(f32, 0.95), scene.parts[0].vertices[0].color[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 0.95), scene.parts[1].vertices[0].color[2], 0.001);
 
-    // 合并后的索引：p1 从 base_vertex=8 起，且全部落在顶点范围内。
-    // （曾因样例数据预加了偏移导致索引 16..23 越界、蓝色 cube 不渲染。）
-    try testing.expectEqual(@as(u32, 8), geometry.indices[36]);
-    for (geometry.indices) |i| try testing.expect(i < 16);
+    // 索引是 part 内局部编号且全部落在顶点范围内。
+    // （曾因样例数据预加了偏移导致索引 8..15 越界、蓝色 cube 不渲染。）
+    for (scene.parts[1].indices) |i| try testing.expect(i < 8);
 }

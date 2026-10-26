@@ -106,23 +106,31 @@ pub fn main() !void {
     engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
     engine.addGeometryObjectWithParams(&object_params, -0.5, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
 
+    // 带纹理着色器路径（glTF 贴图 part 和贴图 cube 共用）。
+    const tex_vs_path = try resolveShaderPath(allocator, io, app_dir, tex_vs_name);
+    defer allocator.free(tex_vs_path);
+    const tex_ps_path = try resolveShaderPath(allocator, io, app_dir, tex_ps_name);
+    defer allocator.free(tex_ps_path);
+
     // 资源加载 demo：assets/models/ 下有样例 glTF 就加载（与上面的 primitive
     // demo 并存）。找不到只 log，不阻塞启动。
     if (resolveAssetPath(allocator, io, app_dir, "SampleBox.gltf")) |model_path| {
         defer allocator.free(model_path);
-        engine.addGltfObject(model_path, vs_path, ps_path, .{ 0.6, 0.0, 1.0 });
+        engine.addGltfObject(
+            model_path,
+            vs_path,
+            ps_path,
+            tex_vs_path,
+            tex_ps_path,
+            .{ 0.6, 0.0, 1.0 },
+        );
     } else |_| {
         std.log.info("未找到 SampleBox.gltf，跳过 glTF demo", .{});
     }
 
-    // 纹理 demo：贴图 cube（UV cube + Sample.png 棋盘格）。
+    // 纹理 demo：贴图 cube（UV cube + 用户图片）。
     if (resolveAssetPath(allocator, io, app_dir, "SampleTexture.jpg")) |texture_path| {
         defer allocator.free(texture_path);
-
-        const tex_vs_path = try resolveShaderPath(allocator, io, app_dir, tex_vs_name);
-        defer allocator.free(tex_vs_path);
-        const tex_ps_path = try resolveShaderPath(allocator, io, app_dir, tex_ps_name);
-        defer allocator.free(tex_ps_path);
 
         const uv_cube = try GeometryGenerators.generateCubeUV(allocator, .{ .size = 0.7 });
         defer {
