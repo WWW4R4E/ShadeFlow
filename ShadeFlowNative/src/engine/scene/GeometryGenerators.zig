@@ -126,6 +126,19 @@ pub const GeometryGenerators = struct {
         for (faces, 0..) |face, fi| {
             const base: u32 = @intCast(fi * 4);
             const corners = [4][2]f32{ .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 } };
+            // 面的法线 = normalize(u × v)——面的 (origin,u,v) 张成外向平面。
+            const u = face.u;
+            const v = face.v;
+            var normal = [3]f32{
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            };
+            const len = std.math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+            normal[0] /= len;
+            normal[1] /= len;
+            normal[2] /= len;
+
             for (corners, 0..) |c, ci| {
                 vertices[base + ci] = .{
                     .position = .{
@@ -133,6 +146,7 @@ pub const GeometryGenerators = struct {
                         face.origin[1] + face.u[1] * c[0] + face.v[1] * c[1],
                         face.origin[2] + face.u[2] * c[0] + face.v[2] * c[1],
                     },
+                    .normal = normal,
                     .uv = c,
                 };
             }
@@ -148,63 +162,22 @@ pub const GeometryGenerators = struct {
         return .{ .vertices = vertices, .indices = indices };
     }
 
+    /// 立方体（顶点色路径）：与 generateCubeUV 同款逐面 24 顶点写法——
+    /// 8 顶点共享的版本没法给每个面正确的法线，光照会糊。
     pub fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !Geometry {
-        const half_size = params.size / 2.0;
+        const uv_cube = try generateCubeUV(allocator, params);
+        defer {
+            allocator.free(uv_cube.vertices);
+            allocator.free(uv_cube.indices);
+        }
 
-        // 立方体有8个顶点
-        var vertices = try allocator.alloc(Vertex, 8);
-        vertices[0] = Vertex{ .position = [3]f32{ -half_size, -half_size, half_size } }; // 左下前
-        vertices[1] = Vertex{ .position = [3]f32{ half_size, -half_size, half_size } }; // 右下前
-        vertices[2] = Vertex{ .position = [3]f32{ half_size, half_size, half_size } }; // 右上前
-        vertices[3] = Vertex{ .position = [3]f32{ -half_size, half_size, half_size } }; // 左上前
-        vertices[4] = Vertex{ .position = [3]f32{ -half_size, -half_size, -half_size } }; // 左下后
-        vertices[5] = Vertex{ .position = [3]f32{ half_size, -half_size, -half_size } }; // 右下后
-        vertices[6] = Vertex{ .position = [3]f32{ half_size, half_size, -half_size } }; // 右上后
-        vertices[7] = Vertex{ .position = [3]f32{ -half_size, half_size, -half_size } }; // 左上后
-
-        var indices = try allocator.alloc(u32, 36);
-        // 前面
-        indices[0] = 0;
-        indices[1] = 1;
-        indices[2] = 2;
-        indices[3] = 0;
-        indices[4] = 2;
-        indices[5] = 3;
-        // 顶面
-        indices[6] = 3;
-        indices[7] = 2;
-        indices[8] = 6;
-        indices[9] = 3;
-        indices[10] = 6;
-        indices[11] = 7;
-        // 右面
-        indices[12] = 2;
-        indices[13] = 1;
-        indices[14] = 5;
-        indices[15] = 2;
-        indices[16] = 5;
-        indices[17] = 6;
-        // 底面
-        indices[18] = 0;
-        indices[19] = 4;
-        indices[20] = 5;
-        indices[21] = 0;
-        indices[22] = 5;
-        indices[23] = 1;
-        // 左面
-        indices[24] = 0;
-        indices[25] = 3;
-        indices[26] = 7;
-        indices[27] = 0;
-        indices[28] = 7;
-        indices[29] = 4;
-        // 后面
-        indices[30] = 4;
-        indices[31] = 7;
-        indices[32] = 6;
-        indices[33] = 4;
-        indices[34] = 6;
-        indices[35] = 5;
+        var vertices = try allocator.alloc(Vertex, uv_cube.vertices.len);
+        errdefer allocator.free(vertices);
+        for (uv_cube.vertices, 0..) |v, i| {
+            vertices[i] = .{ .position = v.position, .normal = v.normal };
+        }
+        const indices = try allocator.dupe(u32, uv_cube.indices);
+        errdefer allocator.free(indices);
 
         return .{ .vertices = vertices, .indices = indices };
     }
@@ -233,11 +206,14 @@ pub const GeometryGenerators = struct {
                 const sin_phi = std.math.sin(phi);
                 const cos_phi = std.math.cos(phi);
 
-                vertices[i] = Vertex{ .position = [3]f32{
-                    radius * sin_theta * cos_phi,
-                    radius * cos_theta,
-                    radius * sin_theta * sin_phi,
-                } };
+                const px = radius * sin_theta * cos_phi;
+                const py = radius * cos_theta;
+                const pz = radius * sin_theta * sin_phi;
+                vertices[i] = Vertex{
+                    .position = .{ px, py, pz },
+                    // 球面法线 = 单位化后的位置向量（原点在球心）。
+                    .normal = .{ sin_theta * cos_phi, cos_theta, sin_theta * sin_phi },
+                };
                 i += 1;
             }
         }
@@ -283,25 +259,23 @@ pub const GeometryGenerators = struct {
         var i: u32 = 0;
 
         // 顶面中心
-        vertices[i] = Vertex{ .position = [3]f32{ 0.0, half_height, 0.0 } };
+        vertices[i] = Vertex{ .position = .{ 0.0, half_height, 0.0 }, .normal = .{ 0, 1, 0 } };
         i += 1;
 
         // 底面中心
-        vertices[i] = Vertex{ .position = [3]f32{ 0.0, -half_height, 0.0 } };
+        vertices[i] = Vertex{ .position = .{ 0.0, -half_height, 0.0 }, .normal = .{ 0, -1, 0 } };
         i += 1;
 
-        // 侧面顶点
+        // 侧面顶点（顶/底环共用水平径向法线）
         for (0..segments) |seg| {
             const angle = @as(f32, @floatFromInt(seg)) / @as(f32, @floatFromInt(segments)) * 2.0 * std.math.pi;
             const x = radius * std.math.cos(angle);
             const z = radius * std.math.sin(angle);
 
-            // 顶面顶点
-            vertices[i] = Vertex{ .position = [3]f32{ x, half_height, z } };
+            vertices[i] = Vertex{ .position = .{ x, half_height, z }, .normal = .{ std.math.cos(angle), 0, std.math.sin(angle) } };
             i += 1;
 
-            // 底面顶点
-            vertices[i] = Vertex{ .position = [3]f32{ x, -half_height, z } };
+            vertices[i] = Vertex{ .position = .{ x, -half_height, z }, .normal = .{ std.math.cos(angle), 0, std.math.sin(angle) } };
             i += 1;
         }
 
@@ -360,21 +334,22 @@ pub const GeometryGenerators = struct {
         // 生成顶点
         var i: u32 = 0;
 
-        // 顶点
-        vertices[i] = Vertex{ .position = [3]f32{ 0.0, half_height, 0.0 } };
+        // 顶点（锥面法线在顶点处取底缘斜率的近似，视觉上够用）
+        vertices[i] = Vertex{ .position = .{ 0.0, half_height, 0.0 }, .normal = .{ 0, 1, 0 } };
         i += 1;
 
         // 底面中心
-        vertices[i] = Vertex{ .position = [3]f32{ 0.0, -half_height, 0.0 } };
+        vertices[i] = Vertex{ .position = .{ 0.0, -half_height, 0.0 }, .normal = .{ 0, -1, 0 } };
         i += 1;
 
         // 底面边缘顶点
+        const slope = radius / height; // 锥面斜率 → 法线的 y 分量
         for (0..segments) |seg| {
             const angle = @as(f32, @floatFromInt(seg)) / @as(f32, @floatFromInt(segments)) * 2.0 * std.math.pi;
             const x = radius * std.math.cos(angle);
             const z = radius * std.math.sin(angle);
 
-            vertices[i] = Vertex{ .position = [3]f32{ x, -half_height, z } };
+            vertices[i] = Vertex{ .position = .{ x, -half_height, z }, .normal = .{ std.math.cos(angle), slope, std.math.sin(angle) } };
             i += 1;
         }
 

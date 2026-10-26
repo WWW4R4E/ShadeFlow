@@ -73,6 +73,7 @@ const Material = struct {
 
 const PrimitiveAttributes = struct {
     POSITION: ?i64 = null,
+    NORMAL: ?i64 = null,
     COLOR_0: ?i64 = null,
     TEXCOORD_0: ?i64 = null,
 };
@@ -201,6 +202,18 @@ pub fn parseFromMemory(
             const pos_view = try viewOf(&gltf, position_acc);
             const pos_bytes = try viewBytes(buffers, pos_view, position_acc.byteOffset, @intCast(position_acc.count * 12));
 
+            // NORMAL（可选，VEC3 f32）：缺省朝上。RH→LH 同样对法线 X 取反。
+            const normal_acc: ?*const Accessor = if (primitive.attributes.NORMAL) |ni|
+                try accessorOf(&gltf, ni)
+            else
+                null;
+            const normal_bytes: ?[]const u8 = if (normal_acc) |na| blk: {
+                if (!std.mem.eql(u8, na.@"type", "VEC3") or na.componentType != component_type_f32 or na.count != position_acc.count)
+                    return error.UnsupportedComponentType;
+                const nv = try viewOf(&gltf, na);
+                break :blk try viewBytes(buffers, nv, na.byteOffset, @intCast(na.count * 12));
+            } else null;
+
             var part = Part{ .indices = &.{} };
 
             if (textured) {
@@ -226,6 +239,7 @@ pub fn parseFromMemory(
                     vertices_tex[i] = .{
                         // RH→LH：X 取反（见文件头坐标系说明）。
                         .position = .{ -pos[0], pos[1], pos[2] },
+                        .normal = readNormal(normal_acc, normal_bytes, i),
                         .uv = readUV(uv_acc, uv_bytes, i),
                     };
                 }
@@ -262,6 +276,7 @@ pub fn parseFromMemory(
                         // RH→LH：X 取反（见文件头坐标系说明）。
                         .position = .{ -pos[0], pos[1], pos[2] },
                         .color = color,
+                        .normal = readNormal(normal_acc, normal_bytes, i),
                     };
                 }
                 part.vertices = vertices;
@@ -319,6 +334,14 @@ fn baseColorImageIndex(gltf: *const GltfJson, primitive: *const Primitive) ?usiz
     const source = gltf.textures[@intCast(tex_index)].source orelse return null;
     if (source < 0) return null;
     return @intCast(source);
+}
+
+/// 读一行法线（NORMAL 存在 → f32 VEC3，X 取反随 RH→LH；缺省朝上）。
+fn readNormal(accessor: ?*const Accessor, bytes: ?[]const u8, index: usize) [3]f32 {
+    _ = accessor orelse return .{ 0, 1, 0 };
+    const b = bytes.?;
+    const n: [3]f32 = @bitCast(b[index * 12 ..][0..12].*);
+    return .{ -n[0], n[1], n[2] };
 }
 
 /// 读一行 UV（VEC2；f32 或归一化 u8/u16）。

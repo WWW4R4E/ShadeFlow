@@ -13,16 +13,20 @@ layout(std140, set = 0, binding = 0) uniform Constants {
     mat4 mWorld;
     vec4 gColor;
     vec4 timeAndSelect; // x: time, y: is_select, z,w: 填充
+    vec4 gLightDir; // xyz: 世界空间方向光（指向光源），w: 环境光强度
 };
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
+layout(location = 2) in vec3 inNormal;
 
 layout(location = 0) out vec4 vertexColor;
+layout(location = 1) out vec3 worldNormal;
 
 void main() {
     vec4 worldPos = mWorld * vec4(inPosition, 1.0);
     vec4 viewPos = mView * worldPos;
     gl_Position = mProj * viewPos;
     vertexColor = inColor;
+    worldNormal = mat3(mWorld) * inNormal;
 }

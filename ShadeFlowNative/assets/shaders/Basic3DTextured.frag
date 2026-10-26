@@ -11,20 +11,27 @@ layout(std140, set = 0, binding = 0) uniform Constants {
     mat4 mWorld;
     vec4 gColor;
     vec4 timeAndSelect; // x: time, y: is_select, z,w: 填充
+    vec4 gLightDir; // xyz: 世界空间方向光（指向光源），w: 环境光强度
 };
 
 layout(set = 1, binding = 0) uniform sampler2D colorTexture;
 
 layout(location = 0) in vec2 vertexUV;
+layout(location = 1) in vec3 worldNormal;
 layout(location = 0) out vec4 outColor;
 
 void main() {
     float time = timeAndSelect.x;
     float is_select = timeAndSelect.y;
 
-    // 基础颜色 = 纹理采样 × gColor。
+    // 漫反射：half-lambert（环境光 + 方向光），避免背光面全黑
+    vec3 n = normalize(worldNormal);
+    float ndl = max(dot(n, gLightDir.xyz), 0.0);
+    float light = gLightDir.w + (1.0 - gLightDir.w) * ndl;
+
+    // 基础颜色 = 纹理采样 × gColor × 光照。
     vec4 texColor = texture(colorTexture, vertexUV);
-    vec3 baseColor = texColor.rgb * gColor.rgb;
+    vec3 baseColor = texColor.rgb * gColor.rgb * light;
 
     // 选中时换成金色并加脉动发光（与 Basic3D.frag 同一套）。
     if (is_select > 0.5) {

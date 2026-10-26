@@ -136,30 +136,36 @@ pub const VertexLayout = struct {
 pub const Vertex = struct {
     position: [3]f32,
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+    /// 世界空间法线（建模空间），光照用。默认朝上：线段/矩形这类「片」
+    /// 状几何没有明确法线，按顶面受光处理。
+    normal: [3]f32 = .{ 0.0, 1.0, 0.0 },
 };
 
-/// 与 `Vertex`（position: [3]f32 + color: [4]f32）匹配的布局。
+/// 与 `Vertex`（position + color + normal）匹配的布局。
 pub const position_color = VertexLayout{
     .elements = &[_]VertexElement{
         .{ .semantic = "POSITION", .format = .f32x3, .offset = 0 },
         .{ .semantic = "COLOR", .format = .f32x4, .offset = 12 },
+        .{ .semantic = "NORMAL", .format = .f32x3, .offset = 28 },
     },
-    .stride = 28,
+    .stride = 40,
 };
 
 /// 位置 + 纹理坐标（带纹理管线的顶点格式）。颜色来自纹理采样 × gColor。
 pub const VertexTex = extern struct {
     position: [3]f32,
+    normal: [3]f32,
     uv: [2]f32,
 };
 
-/// 与 `VertexTex` 匹配的布局。
+/// 与 `VertexTex`（position + normal + uv）匹配的布局。
 pub const position_texcoord = VertexLayout{
     .elements = &[_]VertexElement{
         .{ .semantic = "POSITION", .format = .f32x3, .offset = 0 },
-        .{ .semantic = "TEXCOORD", .format = .f32x2, .offset = 12 },
+        .{ .semantic = "NORMAL", .format = .f32x3, .offset = 12 },
+        .{ .semantic = "TEXCOORD", .format = .f32x2, .offset = 24 },
     },
-    .stride = 20,
+    .stride = 32,
 };
 
 // =============================================================================
@@ -213,12 +219,21 @@ test "顶点布局的 stride 与字段偏移自洽" {
     const VertexExt = extern struct {
         position: [3]f32,
         color: [4]f32,
+        normal: [3]f32,
     };
     try std.testing.expectEqual(@as(u32, @sizeOf(VertexExt)), position_color.stride);
     try std.testing.expectEqual(@as(u32, @offsetOf(VertexExt, "color")), position_color.elements[1].offset);
+    try std.testing.expectEqual(@as(u32, @offsetOf(VertexExt, "normal")), position_color.elements[2].offset);
 
-    // 带纹理顶点：position(12) + uv(8) = 20。
-    const VertexTexExt = extern struct { position: [3]f32, uv: [2]f32 };
+    // 带纹理顶点：position(12) + normal(12) + uv(8) = 32。
+    const VertexTexExt = extern struct { position: [3]f32, normal: [3]f32, uv: [2]f32 };
     try std.testing.expectEqual(@as(u32, @sizeOf(VertexTexExt)), position_texcoord.stride);
     try std.testing.expectEqual(@as(u32, 12), position_texcoord.elements[1].offset);
+    try std.testing.expectEqual(@as(u32, 24), position_texcoord.elements[2].offset);
+
+    // 顶点色：position(12) + color(16) + normal(12) = 40。
+    const VertexNrmExt = extern struct { position: [3]f32, color: [4]f32, normal: [3]f32 };
+    try std.testing.expectEqual(@as(u32, @sizeOf(VertexNrmExt)), position_color.stride);
+    try std.testing.expectEqual(@as(u32, 28), position_color.elements[2].offset);
+
 }

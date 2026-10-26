@@ -33,6 +33,7 @@ pub const Constants = struct {
     mWorld: [4][4]f32, // 世界矩阵
     gColor: [4]f32,
     timeAndSelect: [4]f32, // x: time, y: is_select (0.0 或 1.0), z,w: 填充
+    gLightDir: [4]f32, // xyz: 世界空间方向光（指向光源），w: 环境光强度
 };
 
 // 引擎主体。
@@ -661,6 +662,9 @@ pub const Engine = struct {
                 0.0,
                 0.0,
             },
+            // 方向光：右上前方（世界空间）。坐标随 RH→LH 翻转后的世界取，
+            // 视觉调出来的值；ambient 固定 0.35。
+            .gLightDir = .{ 0.45, 0.75, 0.45, 0.35 },
         };
     }
 

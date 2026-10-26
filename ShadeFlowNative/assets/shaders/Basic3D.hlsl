@@ -6,22 +6,25 @@ cbuffer constants: register(b0)
     float4x4 mWorld;
     float4 gColor;
     float4 timeAndSelect; // x: time, y: is_select (0.0 或 1.0), z,w: 填充
+    float4 gLightDir; // xyz: 世界空间方向光（指向光源），w: 环境光强度
 };
 
 struct VSOutput
 {
     float4 position : SV_Position;
     float4 color : COLOR;
+    float3 worldNormal : TEXCOORD1;
 };
 
 // 顶点着色器
-VSOutput mainVS(float3 pos : POSITION, float4 color : COLOR)
+VSOutput mainVS(float3 pos : POSITION, float4 color : COLOR, float3 normal : NORMAL)
 {
     VSOutput output;
     float4 worldPos = mul(mWorld, float4(pos, 1.0f));
     float4 viewPos = mul(mView, worldPos);
     output.position = mul(mProj, viewPos);
     output.color = color;
+    output.worldNormal = mul((float3x3)mWorld, normal);
     return output;
 }
 
@@ -32,8 +35,13 @@ float4 mainPS(VSOutput input) : SV_Target
     float time = timeAndSelect.x;
     float is_select = timeAndSelect.y;
 
-    // 基础颜色 = 顶点颜色 * gColor（gColor作为整体颜色调整）
-    float3 baseColor = input.color.rgb * gColor.rgb;
+    // 漫反射：half-lambert（0.35 环境光 + 方向光），避免背光面全黑
+    float3 n = normalize(input.worldNormal);
+    float ndl = max(dot(n, gLightDir.xyz), 0.0f);
+    float light = gLightDir.w + (1.0f - gLightDir.w) * ndl;
+
+    // 基础颜色 = 顶点颜色 * gColor * 光照
+    float3 baseColor = input.color.rgb * gColor.rgb * light;
 
     // 高亮效果：如果被选中，使用金色并添加脉动发光
     if (is_select > 0.5f) {
