@@ -11,7 +11,7 @@ const win32 = @import("win32").everything;
 const Device = @import("Device.zig").Device;
 const Error = @import("Error.zig");
 
-pub const BufferType = enum { vertex, index, constant };
+pub const BufferType = enum { vertex, index, constant, upload };
 
 /// D3D12 要求常量缓冲的 GPU 地址按 256 字节对齐（绑定偏移也按这个粒度）。
 pub const constant_buffer_alignment = 256;
@@ -52,10 +52,17 @@ pub const Buffer = struct {
         self.unmapIfStatic();
     }
 
-    /// 常量缓冲：`size` 必须已按 256 对齐（调用方负责，见 Renderer.setConstants）。
+    /// 常量缓冲：`size` 必须已按 256 对齐（调用方负责，见 Renderer 的常量槽位）。
     pub fn createConstantBuffer(self: *Buffer, device: *Device, size: u32) !void {
         try self.createUpload(device, size);
         // 常量缓冲保持映射：每帧 updateConstantBuffer 直接写。
+    }
+
+    /// 纹理上传用的中转缓冲：UPLOAD 堆 + 保持映射，调用方 memcpy 后提交拷贝。
+    pub fn createForUpload(self: *Buffer, device: *Device, size: u32) !void {
+        try self.createUpload(device, size);
+        // createUpload 不主动 Unmap（那是静态数据拷贝后的收尾步骤），这里保持映射
+        // 直到 deinit——upload 缓冲生命周期只覆盖一次提交。
     }
 
     pub fn updateConstantBuffer(self: *Buffer, data: []const u8, offset: u32) void {

@@ -3,8 +3,10 @@
 //! 着色器只承载「程序 + 输入布局 + 根签名」；光栅化/深度/混合/拓扑由
 //! `Pipeline.zig` 在创建时连同这里的字节码一起烘进 PSO。
 //!
-//! 根签名固定为一个根 CBV（b0，对所有着色阶段可见），draw 时绑定当前帧的
-//! 常量槽，HLSL 不用改。
+//! 根签名按顶点布局自动分两种变体（由 `loadProgram` 检查 `TEXCOORD` 语义）：
+//! - 基础：根 CBV（b0，全阶段）——现有 position_color 管线用；
+//! - 带纹理：根 CBV + 描述符表（t0 SRV、s0 采样器，像素阶段）——
+//!   position_texcoord 管线用，`is_textured` 标记，Renderer 据此绑堆。
 
 const std = @import("std");
 
@@ -20,6 +22,8 @@ pub const Shader = struct {
     /// 输入布局描述（堆分配，deinit 释放）。语义名字指向 Types 里的静态字符串。
     input_elements: []win32.D3D12_INPUT_ELEMENT_DESC,
     root_signature: *win32.ID3D12RootSignature,
+    /// 布局含 TEXCOORD → 带纹理变体（根签名多两个描述符表，Renderer 绑堆）。
+    is_textured: bool,
 
     pub const LoadError = error{ TooManyVertexElements, MissingVertexShader, MissingPixelShader, OutOfMemory, HResultFailed };
 
@@ -50,11 +54,16 @@ pub const Shader = struct {
         if (layout.elements.len > 16) return error.TooManyVertexElements;
 
         const allocator = std.heap.page_allocator;
+        const textured = for (layout.elements) |element| {
+            if (std.mem.eql(u8, element.semantic, "TEXCOORD")) break true;
+        } else false;
+
         var shader: Shader = .{
             .vs_bytes = vs_bytes,
             .ps_bytes = ps_bytes,
             .input_elements = try allocator.alloc(win32.D3D12_INPUT_ELEMENT_DESC, layout.elements.len),
             .root_signature = undefined,
+            .is_textured = textured,
         };
         errdefer {
             allocator.free(shader.input_elements);
@@ -77,7 +86,7 @@ pub const Shader = struct {
             };
         }
 
-        shader.root_signature = try createRootSignature(device);
+        shader.root_signature = try createRootSignature(device, textured);
         return shader;
     }
 
@@ -93,14 +102,46 @@ pub const Shader = struct {
     // 内部
     // =========================================================================
 
-    fn createRootSignature(device: *Device) !*win32.ID3D12RootSignature {
-        const root_params = [_]win32.D3D12_ROOT_PARAMETER{.{
+    fn createRootSignature(device: *Device, textured: bool) !*win32.ID3D12RootSignature {
+        const srv_ranges = [_]win32.D3D12_DESCRIPTOR_RANGE{.{
+            .RangeType = .SRV,
+            .NumDescriptors = 1,
+            .BaseShaderRegister = 0,
+            .RegisterSpace = 0,
+            .OffsetInDescriptorsFromTableStart = win32.D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+        }};
+        const sampler_ranges = [_]win32.D3D12_DESCRIPTOR_RANGE{.{
+            .RangeType = .SAMPLER,
+            .NumDescriptors = 1,
+            .BaseShaderRegister = 0,
+            .RegisterSpace = 0,
+            .OffsetInDescriptorsFromTableStart = win32.D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+        }};
+
+        // 0：根 CBV（b0）；带纹理时 1：t0 表、2：s0 表（像素阶段）。
+        var root_params: [3]win32.D3D12_ROOT_PARAMETER = undefined;
+        root_params[0] = .{
             .ParameterType = .CBV,
             .Anonymous = .{ .Descriptor = .{ .ShaderRegister = 0, .RegisterSpace = 0 } },
             .ShaderVisibility = .ALL,
-        }};
+        };
+        var param_count: usize = 1;
+        if (textured) {
+            root_params[1] = .{
+                .ParameterType = .DESCRIPTOR_TABLE,
+                .Anonymous = .{ .DescriptorTable = .{ .NumDescriptorRanges = srv_ranges.len, .pDescriptorRanges = &srv_ranges[0] } },
+                .ShaderVisibility = win32.D3D12_SHADER_VISIBILITY_PIXEL,
+            };
+            root_params[2] = .{
+                .ParameterType = .DESCRIPTOR_TABLE,
+                .Anonymous = .{ .DescriptorTable = .{ .NumDescriptorRanges = sampler_ranges.len, .pDescriptorRanges = &sampler_ranges[0] } },
+                .ShaderVisibility = win32.D3D12_SHADER_VISIBILITY_PIXEL,
+            };
+            param_count = 3;
+        }
+
         const desc = win32.D3D12_ROOT_SIGNATURE_DESC{
-            .NumParameters = root_params.len,
+            .NumParameters = @intCast(param_count),
             .pParameters = &root_params[0],
             .NumStaticSamplers = 0,
             .pStaticSamplers = null,

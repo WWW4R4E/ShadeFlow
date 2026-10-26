@@ -153,6 +153,20 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // 样例模型：装到 zig-out/assets/models/（main.zig 按 exe 目录相对定位，
+    // 与 shaders/ 同一套查找逻辑）。
+    const sample_model = b.addInstallFile(
+        b.path("assets/models/SampleBox.gltf"),
+        "assets/models/SampleBox.gltf",
+    );
+    b.getInstallStep().dependOn(&sample_model.step);
+
+    const sample_texture = b.addInstallFile(
+        b.path("assets/textures/SampleTexture.jpg"),
+        "assets/textures/SampleTexture.jpg",
+    );
+    b.getInstallStep().dependOn(&sample_texture.step);
+
     // run 步骤
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
@@ -208,13 +222,15 @@ pub fn build(b: *std.Build) void {
         name: []const u8,
         output: std.Build.LazyPath,
     };
-    var shader_artifacts: [2]ShaderArtifact = undefined;
+    var shader_artifacts: [4]ShaderArtifact = undefined;
     var shader_count: usize = 0;
     if (use_vulkan) {
         const glslc = resolveGlslc(b);
         const glsl_sources = [_]struct { src: []const u8, out: []const u8 }{
             .{ .src = "assets/shaders/Basic3D.vert", .out = "Basic3DVS.spv" },
             .{ .src = "assets/shaders/Basic3D.frag", .out = "Basic3DPS.spv" },
+            .{ .src = "assets/shaders/Basic3DTextured.vert", .out = "Basic3DTexturedVS.spv" },
+            .{ .src = "assets/shaders/Basic3DTextured.frag", .out = "Basic3DTexturedPS.spv" },
         };
 
         for (glsl_sources) |shader| {
@@ -251,6 +267,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "windowkit", .module = windowkit },
             .{ .name = "render_types", .module = render_types },
             .{ .name = "render_backend", .module = render_backend },
+            // tests.zig 相对 import engine/asset/ 下的解析器，它们的
+            // @import("zigimg") 落到这个模块的 import 表上。
+            .{ .name = "zigimg", .module = b.dependency("zigimg", .{}).module("zigimg") },
         },
     });
     const unit_tests = b.addTest(.{ .root_module = test_mod });
@@ -473,6 +492,9 @@ fn createEngineModule(
         .imports = &.{
             .{ .name = "render_types", .module = render_types },
             .{ .name = "render_backend", .module = render_backend },
+            // 资源加载（engine/asset/）：glTF 用 std.json，PNG 用 zigimg。
+            // 跨平台纯 Zig，不是 lazy 依赖，所有目标都会拉取。
+            .{ .name = "zigimg", .module = b.dependency("zigimg", .{}).module("zigimg") },
         },
     });
 }

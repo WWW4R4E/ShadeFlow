@@ -37,5 +37,20 @@ for %%f in (%SHADER_DIR%\*.hlsl) do (
     )
 )
 
+REM 带纹理管线（position_texcoord 布局）
+echo Compiling Basic3DTextured Vertex Shader...
+%DXC_PATH% /T vs_6_0 /E mainVS /Fo %OUT%\Basic3DTexturedVS.cso %SHADER_DIR%\Basic3DTextured.hlsl
+if %ERRORLEVEL% NEQ 0 (
+    echo Textured vertex shader compilation failed.
+    exit /b 1
+)
+
+echo Compiling Basic3DTextured Pixel Shader...
+%DXC_PATH% /T ps_6_0 /E mainPS /Fo %OUT%\Basic3DTexturedPS.cso %SHADER_DIR%\Basic3DTextured.hlsl
+if %ERRORLEVEL% NEQ 0 (
+    echo Textured pixel shader compilation failed.
+    exit /b 1
+)
+
 echo Shaders compiled successfully.
 exit /b 0

@@ -31,11 +31,7 @@ const frames_in_flight = @import("Sync.zig").frames_in_flight;
 
 /// 纹理还没有 Vulkan 实现（深度图在 `SwapChain` 里）。保留占位类型是为了不
 /// 让 `render/Renderer.zig` 的门面在两个后端之间出现签名差异。
-const TextureImpl = struct {
-    pub fn deinit(self: *TextureImpl) void {
-        _ = self;
-    }
-};
+const TextureImpl = @import("Texture.zig").Texture;
 
 pub const Renderer = struct {
     pub const Buffer = BufferImpl;
@@ -53,6 +49,9 @@ pub const Renderer = struct {
 
     width: u32,
     height: u32,
+
+    /// 1×1 白色默认纹理：不贴图的对象绑它，采样结果等于原色。
+    default_texture: ?Texture = null,
 
     frame_index: u32 = 0,
     image_index: u32 = 0,
@@ -95,6 +94,11 @@ pub const Renderer = struct {
         var descriptor = try Descriptor.init(device.shared, device.minUniformBufferOffsetAlignment());
         errdefer descriptor.deinit();
 
+        // 默认白纹理：渲染器存活期间一直在，deinit 时随 renderer 释放。
+        const white = [_]u8{ 255, 255, 255, 255 };
+        var default_texture = try TextureImpl.createRgba8(device.shared, &descriptor, &white, 1, 1);
+        errdefer default_texture.deinit();
+
         std.log.info("Vulkan 渲染管线就绪（{d}x{d}）", .{ swap_chain.extent.width, swap_chain.extent.height });
 
         return .{
@@ -103,6 +107,7 @@ pub const Renderer = struct {
             .swap_chain = swap_chain,
             .sync = sync,
             .descriptor = descriptor,
+            .default_texture = default_texture,
             .width = width,
             .height = height,
         };
@@ -111,6 +116,7 @@ pub const Renderer = struct {
     pub fn deinit(self: *Renderer) void {
         self.device.shared.wrapper.deviceWaitIdle(self.device.shared.device) catch {};
 
+        if (self.default_texture) |*t| t.deinit();
         self.descriptor.deinit();
         self.sync.deinit();
         self.swap_chain.deinit();
@@ -296,6 +302,16 @@ pub const Renderer = struct {
         );
     }
 
+    /// 从 RGBA8 像素创建颜色纹理（无 mip）。
+    pub fn createTexture(
+        self: *Renderer,
+        pixels: []const u8,
+        width: u32,
+        height: u32,
+    ) !Texture {
+        return TextureImpl.createRgba8(self.device.shared, &self.descriptor, pixels, width, height);
+    }
+
     /// 创建管线：着色器 × 状态一次性烤进 `VkPipeline`。
     ///
     /// `shader` 由调用方持有并保证活得比返回的 Pipeline 久。
@@ -320,8 +336,9 @@ pub const Renderer = struct {
         vertex_buffer: *const Buffer,
         vertex_count: u32,
         constants: []const u8,
+        texture: ?*const Texture,
     ) void {
-        self.drawInner(pipeline, vertex_buffer, null, vertex_count, constants) catch |err| {
+        self.drawInner(pipeline, vertex_buffer, null, vertex_count, constants, texture) catch |err| {
             std.log.err("Vulkan draw 失败: {s}", .{@errorName(err)});
         };
     }
@@ -333,8 +350,9 @@ pub const Renderer = struct {
         index_buffer: *const Buffer,
         index_count: u32,
         constants: []const u8,
+        texture: ?*const Texture,
     ) void {
-        self.drawInner(pipeline, vertex_buffer, index_buffer, index_count, constants) catch |err| {
+        self.drawInner(pipeline, vertex_buffer, index_buffer, index_count, constants, texture) catch |err| {
             std.log.err("Vulkan drawIndexed 失败: {s}", .{@errorName(err)});
         };
     }
@@ -346,6 +364,7 @@ pub const Renderer = struct {
         index_buffer: ?*const Buffer,
         count: u32,
         constants: []const u8,
+        texture: ?*const Texture,
     ) !void {
         if (!self.frame_active) return;
         const descriptor = &self.descriptor;
@@ -364,7 +383,9 @@ pub const Renderer = struct {
             constants_offset = try descriptor.writeConstants(frame, constants);
         }
 
-        const sets = [_]vk.DescriptorSet{descriptor.currentSet(self.frame_index % frames_in_flight)};
+        // set0：per-frame 常量；set1：纹理（null → 默认白纹理）。
+        const texture_set: vk.DescriptorSet = if (texture) |t| t.set else self.default_texture.?.set;
+        const sets = [_]vk.DescriptorSet{ descriptor.currentSet(self.frame_index % frames_in_flight), texture_set };
         const dynamic_offsets = [_]u32{@intCast(constants_offset)};
         w.cmdBindDescriptorSets(cmd, .graphics, descriptor.pipeline_layout, 0, &sets, &dynamic_offsets);
 

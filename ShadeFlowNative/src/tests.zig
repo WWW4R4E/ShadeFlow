@@ -14,4 +14,8 @@ test {
     _ = @import("engine/math/Aabb.zig");
     _ = @import("engine/math/Matrix.zig");
     _ = @import("engine/view/Picker.zig");
+
+    // 引擎侧：资源解析器（asset/）
+    _ = @import("engine/asset/Gltf.zig");
+    _ = @import("engine/asset/Png.zig");
 }

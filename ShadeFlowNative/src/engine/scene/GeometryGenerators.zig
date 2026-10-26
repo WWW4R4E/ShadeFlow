@@ -4,7 +4,15 @@ const std = @import("std");
 // `render_types` 的根——Zig 规定一个文件只能属于一个模块，所以不能用相对
 // 路径 import 它；要走门面 `render/Renderer.zig` 转出的 `Types`（命名模块）。
 // 也因此本文件不再反向 import `../Engine.zig`（文件级循环随之断掉）。
-const Vertex = @import("../render/Renderer.zig").Types.Vertex;
+const Types = @import("../render/Renderer.zig").Types;
+const Vertex = Types.Vertex;
+const VertexTex = Types.VertexTex;
+
+/// 带纹理几何：`generateCubeUV` 的返回类型。
+pub const TexGeometry = struct {
+    vertices: []VertexTex,
+    indices: []u32,
+};
 
 // 几何形状参数结构
 pub const GeometryGenerators = struct {
@@ -85,6 +93,61 @@ pub const GeometryGenerators = struct {
     // 动态几何生成函数
 
     // 生成立方体
+    /// 带纹理 UV 的立方体：6 个面各自独立 4 顶点（UV 需要每面独立映射，
+    /// 共享顶点的写法没法给每个面完整的 0..1 UV），每面 UV 0..1。
+    pub fn generateCubeUV(allocator: std.mem.Allocator, params: CubeParams) !TexGeometry {
+        const half = params.size / 2.0;
+
+        // 每面：4 顶点 + 2 三角形。面按 (origin, u 轴, v 轴) 生成。
+        const faces = [_]struct {
+            origin: [3]f32,
+            u: [3]f32,
+            v: [3]f32,
+        }{
+            // 前面 z+（从外看逆时针排 u/v）
+            .{ .origin = .{ -half, -half, half }, .u = .{ 2 * half, 0, 0 }, .v = .{ 0, 2 * half, 0 } },
+            // 后面 z-
+            .{ .origin = .{ half, -half, -half }, .u = .{ -2 * half, 0, 0 }, .v = .{ 0, 2 * half, 0 } },
+            // 右面 x+
+            .{ .origin = .{ half, -half, half }, .u = .{ 0, 0, -2 * half }, .v = .{ 0, 2 * half, 0 } },
+            // 左面 x-
+            .{ .origin = .{ -half, -half, -half }, .u = .{ 0, 0, 2 * half }, .v = .{ 0, 2 * half, 0 } },
+            // 顶面 y+
+            .{ .origin = .{ -half, half, half }, .u = .{ 2 * half, 0, 0 }, .v = .{ 0, 0, -2 * half } },
+            // 底面 y-
+            .{ .origin = .{ -half, -half, -half }, .u = .{ 2 * half, 0, 0 }, .v = .{ 0, 0, 2 * half } },
+        };
+
+        var vertices = try allocator.alloc(VertexTex, 24);
+        errdefer allocator.free(vertices);
+        var indices = try allocator.alloc(u32, 36);
+        errdefer allocator.free(indices);
+
+        for (faces, 0..) |face, fi| {
+            const base: u32 = @intCast(fi * 4);
+            const corners = [4][2]f32{ .{ 0, 0 }, .{ 1, 0 }, .{ 1, 1 }, .{ 0, 1 } };
+            for (corners, 0..) |c, ci| {
+                vertices[base + ci] = .{
+                    .position = .{
+                        face.origin[0] + face.u[0] * c[0] + face.v[0] * c[1],
+                        face.origin[1] + face.u[1] * c[0] + face.v[1] * c[1],
+                        face.origin[2] + face.u[2] * c[0] + face.v[2] * c[1],
+                    },
+                    .uv = c,
+                };
+            }
+            const ii: u32 = @intCast(fi * 6);
+            indices[ii] = base;
+            indices[ii + 1] = base + 1;
+            indices[ii + 2] = base + 2;
+            indices[ii + 3] = base;
+            indices[ii + 4] = base + 2;
+            indices[ii + 5] = base + 3;
+        }
+
+        return .{ .vertices = vertices, .indices = indices };
+    }
+
     pub fn generateCube(allocator: std.mem.Allocator, params: CubeParams) !Geometry {
         const half_size = params.size / 2.0;
 

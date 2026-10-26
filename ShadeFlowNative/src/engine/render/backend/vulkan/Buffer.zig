@@ -149,7 +149,7 @@ pub const Buffer = struct {
 
     /// host-visible 缓冲：创建后立刻映射，`writeAt` 直接改内存。
     /// staging 上传和常量缓冲都走这条路，映射一次就够，不必再单独暴露 map/unmap。
-    fn createHostVisible(
+    pub fn createHostVisible(
         shared: *const Device.Shared,
         size: vk.DeviceSize,
         usage: vk.BufferUsageFlags,

@@ -14,6 +14,10 @@ const Error = @import("Error.zig");
 /// 交换链后台缓冲区数量。RTV 堆按这个数开槽。
 pub const buffer_count = 2;
 
+/// 纹理 SRV / 采样器堆容量（静态槽位，超出时报错；当前场景规模足够）。
+pub const max_srv_slots = 128;
+pub const max_sampler_slots = 16;
+
 pub const Device = struct {
     d3d_device: *win32.ID3D12Device,
     /// 工厂必须活得比交换链久（交换链创建时引用它的队列/工厂），随 Device 持有。
@@ -30,6 +34,15 @@ pub const Device = struct {
     rtv_heap: *win32.ID3D12DescriptorHeap,
     dsv_heap: *win32.ID3D12DescriptorHeap,
     rtv_descriptor_size: u32,
+
+    /// 纹理 SRV/采样器用的 shader-visible 堆（静态槽位：纹理创建时分配一次）。
+    srv_heap: *win32.ID3D12DescriptorHeap,
+    sampler_heap: *win32.ID3D12DescriptorHeap,
+    srv_descriptor_size: u32,
+    sampler_descriptor_size: u32,
+    /// 槽位分配游标（永不回收；纹理对象随场景销毁，量级很小）。
+    srv_slots_used: u32 = 0,
+    sampler_slots_used: u32 = 0,
 
     pub fn init() !Device {
         // 没装「图形工具」可选功能时调试层起不来：警告后降级，不让引擎挂掉。
@@ -119,6 +132,12 @@ pub const Device = struct {
         const dsv_heap = try createDescriptorHeap(d3d_device.?, .DSV, 4);
         errdefer _ = dsv_heap.IUnknown.Release();
 
+        // 纹理 SRV/采样器：shader-visible（描述符表直接指向 GPU 句柄）。
+        const srv_heap = try createShaderVisibleHeap(d3d_device.?, .CBV_SRV_UAV, max_srv_slots);
+        errdefer _ = srv_heap.IUnknown.Release();
+        const sampler_heap = try createShaderVisibleHeap(d3d_device.?, .SAMPLER, max_sampler_slots);
+        errdefer _ = sampler_heap.IUnknown.Release();
+
         return Device{
             .d3d_device = d3d_device.?,
             .factory = factory.?,
@@ -130,12 +149,18 @@ pub const Device = struct {
             .rtv_heap = rtv_heap,
             .dsv_heap = dsv_heap,
             .rtv_descriptor_size = d3d_device.?.GetDescriptorHandleIncrementSize(.RTV),
+            .srv_heap = srv_heap,
+            .sampler_heap = sampler_heap,
+            .srv_descriptor_size = d3d_device.?.GetDescriptorHandleIncrementSize(.CBV_SRV_UAV),
+            .sampler_descriptor_size = d3d_device.?.GetDescriptorHandleIncrementSize(.SAMPLER),
         };
     }
 
     pub fn deinit(self: *Device) void {
         self.waitForGpu();
         _ = win32.CloseHandle(self.fence_event);
+        _ = self.sampler_heap.IUnknown.Release();
+        _ = self.srv_heap.IUnknown.Release();
         _ = self.dsv_heap.IUnknown.Release();
         _ = self.rtv_heap.IUnknown.Release();
         _ = self.fence.IUnknown.Release();
@@ -177,6 +202,50 @@ pub const Device = struct {
         );
         defer _ = debug.?.IUnknown.Release();
         debug.?.EnableDebugLayer();
+    }
+
+    /// 第 `index` 个 SRV 槽的 GPU 句柄（shader-visible 堆）。
+    pub fn srvGpuHandle(self: *const Device, index: u32) win32.D3D12_GPU_DESCRIPTOR_HANDLE {
+        var gpu = self.srv_heap.GetGPUDescriptorHandleForHeapStart();
+        gpu.ptr += @as(u64, self.srv_descriptor_size) * index;
+        return gpu;
+    }
+
+    pub fn samplerGpuHandle(self: *const Device, index: u32) win32.D3D12_GPU_DESCRIPTOR_HANDLE {
+        var gpu = self.sampler_heap.GetGPUDescriptorHandleForHeapStart();
+        gpu.ptr += @as(u64, self.sampler_descriptor_size) * index;
+        return gpu;
+    }
+
+    pub fn srvCpuHandle(self: *const Device, index: u32) win32.D3D12_CPU_DESCRIPTOR_HANDLE {
+        var cpu = self.srv_heap.GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += @as(usize, self.srv_descriptor_size) * index;
+        return cpu;
+    }
+
+    pub fn samplerCpuHandle(self: *const Device, index: u32) win32.D3D12_CPU_DESCRIPTOR_HANDLE {
+        var cpu = self.sampler_heap.GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += @as(usize, self.sampler_descriptor_size) * index;
+        return cpu;
+    }
+
+    fn createShaderVisibleHeap(
+        device: *win32.ID3D12Device,
+        heap_type: win32.D3D12_DESCRIPTOR_HEAP_TYPE,
+        count: u32,
+    ) !*win32.ID3D12DescriptorHeap {
+        const desc = win32.D3D12_DESCRIPTOR_HEAP_DESC{
+            .Type = heap_type,
+            .NumDescriptors = count,
+            .Flags = win32.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+            .NodeMask = 0,
+        };
+        var heap: ?*win32.ID3D12DescriptorHeap = null;
+        try Error.check(
+            device.CreateDescriptorHeap(&desc, win32.IID_ID3D12DescriptorHeap, @ptrCast(&heap)),
+            "创建 shader-visible 描述符堆",
+        );
+        return heap.?;
     }
 
     fn createDescriptorHeap(

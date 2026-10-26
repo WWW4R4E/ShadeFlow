@@ -25,6 +25,9 @@ const frames_in_flight = @import("Sync.zig").frames_in_flight;
 /// 初始每帧槽位数。256 个槽 × 对齐后的 slot_size，超出会自动扩容。
 const initial_slot_capacity: u32 = 256;
 
+/// 纹理描述符池的容量上限（引擎当前规模足够；超过时创建新纹理报错）。
+const max_textures = 64;
+
 pub const Descriptor = struct {
     shared: *const Device.Shared,
     layout: vk.DescriptorSetLayout,
@@ -40,6 +43,10 @@ pub const Descriptor = struct {
     peak_slots: u32 = 0,
 
     frames: [frames_in_flight]Frame = @splat(.{}),
+
+    /// set1：每个纹理一个 combined image sampler set（创建时写好，绘制期不变）。
+    texture_layout: vk.DescriptorSetLayout = .null,
+    texture_pool: vk.DescriptorPool = .null,
 
     const Frame = struct {
         buffer: Buffer = .{},
@@ -67,15 +74,33 @@ pub const Descriptor = struct {
         }, null);
         errdefer w.destroyDescriptorSetLayout(shared.device, layout, null);
 
+        // set1：贴图对象的 combined image sampler。不贴图的着色器不用它，
+        // 但 pipeline_layout 里多声明一个 set 是合法的。
+        const texture_bindings = [_]vk.DescriptorSetLayoutBinding{
+            .{
+                .binding = 0,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+                .stage_flags = .{ .fragment = true },
+            },
+        };
+        const texture_layout = try w.createDescriptorSetLayout(shared.device, &.{
+            .binding_count = texture_bindings.len,
+            .p_bindings = &texture_bindings,
+        }, null);
+        errdefer w.destroyDescriptorSetLayout(shared.device, texture_layout, null);
+
+        const layouts = [_]vk.DescriptorSetLayout{ layout, texture_layout };
         const pipeline_layout = try w.createPipelineLayout(shared.device, &.{
-            .set_layout_count = 1,
-            .p_set_layouts = &.{layout},
+            .set_layout_count = layouts.len,
+            .p_set_layouts = &layouts,
         }, null);
         errdefer w.destroyPipelineLayout(shared.device, pipeline_layout, null);
 
         return .{
             .shared = shared,
             .layout = layout,
+            .texture_layout = texture_layout,
             .pipeline_layout = pipeline_layout,
             .alignment = if (alignment == 0) 256 else alignment,
         };
@@ -88,11 +113,15 @@ pub const Descriptor = struct {
         for (&self.frames) |*frame| frame.buffer.deinit();
 
         if (self.pool != .null) w.destroyDescriptorPool(shared.device, self.pool, null);
+        if (self.texture_pool != .null) w.destroyDescriptorPool(shared.device, self.texture_pool, null);
         if (self.pipeline_layout != .null) w.destroyPipelineLayout(shared.device, self.pipeline_layout, null);
+        if (self.texture_layout != .null) w.destroyDescriptorSetLayout(shared.device, self.texture_layout, null);
         if (self.layout != .null) w.destroyDescriptorSetLayout(shared.device, self.layout, null);
 
         self.pool = .null;
+        self.texture_pool = .null;
         self.pipeline_layout = .null;
+        self.texture_layout = .null;
         self.layout = .null;
     }
 
@@ -132,6 +161,56 @@ pub const Descriptor = struct {
     /// 本帧已分配的 descriptor set（绑定时配合 dynamic offset 使用）。
     pub fn currentSet(self: *const Descriptor, frame_index: u32) vk.DescriptorSet {
         return self.frames[frame_index].set;
+    }
+
+    /// 为一个纹理分配 set1 描述符并写入采样器信息（纹理创建时一次性）。
+    pub fn allocTextureSet(
+        self: *Descriptor,
+        image_view: vk.ImageView,
+        sampler: vk.Sampler,
+    ) !vk.DescriptorSet {
+        const shared = self.shared;
+        const w = &shared.wrapper;
+
+        if (self.texture_pool == .null) {
+            const pool_sizes = [_]vk.DescriptorPoolSize{
+                .{ .type = .combined_image_sampler, .descriptor_count = max_textures },
+            };
+            self.texture_pool = try w.createDescriptorPool(shared.device, &.{
+                .max_sets = max_textures,
+                .pool_size_count = pool_sizes.len,
+                .p_pool_sizes = &pool_sizes,
+                .flags = .{ .free_descriptor_set = true },
+            }, null);
+        }
+
+        var out_sets: [1]vk.DescriptorSet = undefined;
+        try w.allocateDescriptorSets(shared.device, &.{
+            .descriptor_pool = self.texture_pool,
+            .descriptor_set_count = 1,
+            .p_set_layouts = &.{self.texture_layout},
+        }, &out_sets);
+
+        const dummy_buffer_info = [_]vk.DescriptorBufferInfo{std.mem.zeroes(vk.DescriptorBufferInfo)};
+        const dummy_views = [_]vk.BufferView{.null};
+        const image_info = [_]vk.DescriptorImageInfo{
+            .{ .sampler = sampler, .image_view = image_view, .image_layout = .shader_read_only_optimal },
+        };
+
+        w.updateDescriptorSets(shared.device, &.{
+            .{
+                .dst_set = out_sets[0],
+                .dst_binding = 0,
+                .dst_array_element = 0,
+                .descriptor_count = 1,
+                .descriptor_type = .combined_image_sampler,
+                .p_image_info = &image_info,
+                .p_buffer_info = &dummy_buffer_info,
+                .p_texel_buffer_view = &dummy_views,
+            },
+        }, null);
+
+        return out_sets[0];
     }
 
     // =========================================================================

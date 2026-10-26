@@ -78,6 +78,14 @@ pub fn main() !void {
         .dxbc => "Basic3DPS.cso",
         .spirv => "Basic3DPS.spv",
     };
+    const tex_vs_name = switch (shader_format) {
+        .dxbc => "Basic3DTexturedVS.cso",
+        .spirv => "Basic3DTexturedVS.spv",
+    };
+    const tex_ps_name = switch (shader_format) {
+        .dxbc => "Basic3DTexturedPS.cso",
+        .spirv => "Basic3DTexturedPS.spv",
+    };
 
     const vs_path = try resolveShaderPath(allocator, io, app_dir, vs_name);
     defer allocator.free(vs_path);
@@ -97,6 +105,43 @@ pub fn main() !void {
     // 因为addGeometryObjectWithParams导出给了C ABI，所以这里需要转换为[*:0]const u8，而不是[]u8
     engine.addGeometryObjectWithParams(&object_params, 0.1, 0.1, 0.1, vs_path_cstr.ptr, ps_path_cstr.ptr);
     engine.addGeometryObjectWithParams(&object_params, -0.5, 1, 0, vs_path_cstr.ptr, ps_path_cstr.ptr);
+
+    // 资源加载 demo：assets/models/ 下有样例 glTF 就加载（与上面的 primitive
+    // demo 并存）。找不到只 log，不阻塞启动。
+    if (resolveAssetPath(allocator, io, app_dir, "SampleBox.gltf")) |model_path| {
+        defer allocator.free(model_path);
+        engine.addGltfObject(model_path, vs_path, ps_path, .{ 0.6, 0.0, 1.0 });
+    } else |_| {
+        std.log.info("未找到 SampleBox.gltf，跳过 glTF demo", .{});
+    }
+
+    // 纹理 demo：贴图 cube（UV cube + Sample.png 棋盘格）。
+    if (resolveAssetPath(allocator, io, app_dir, "SampleTexture.jpg")) |texture_path| {
+        defer allocator.free(texture_path);
+
+        const tex_vs_path = try resolveShaderPath(allocator, io, app_dir, tex_vs_name);
+        defer allocator.free(tex_vs_path);
+        const tex_ps_path = try resolveShaderPath(allocator, io, app_dir, tex_ps_name);
+        defer allocator.free(tex_ps_path);
+
+        const uv_cube = try GeometryGenerators.generateCubeUV(allocator, .{ .size = 0.7 });
+        defer {
+            allocator.free(uv_cube.vertices);
+            allocator.free(uv_cube.indices);
+        }
+        engine.addTexturedIndexedRenderObject(
+            uv_cube.vertices,
+            uv_cube.indices,
+            texture_path,
+            tex_vs_path,
+            tex_ps_path,
+            .{ 0.0, -1.4, 0.0 },
+        ) catch |err| {
+            std.log.err("添加贴图 cube 失败: {s}", .{@errorName(err)});
+        };
+    } else |_| {
+        std.log.info("未找到 SampleTexture.jpg，跳过纹理 demo", .{});
+    }
 
     // 过程式主循环：循环主权在这里。
     //
@@ -144,6 +189,30 @@ fn onResize(win: *windowkit.PlatformWindow, width: f64, height: f64) void {
 /// 按 exe 目录找着色器：
 /// - 开发布局：`zig-out/bin/../shaders/`；
 /// - macOS bundle：`ShadeFlow.app/Contents/MacOS/../Resources/shaders/`。
+/// 模型等资源的查找逻辑与着色器一致：exe 目录相对 `assets/<分类>` 或
+/// macOS bundle 的 `Resources/<分类>`。
+fn resolveAssetPath(
+    allocator: std.mem.Allocator,
+    io: Io,
+    app_dir: []const u8,
+    name: []const u8,
+) ![]u8 {
+    const relative_dirs = [_][]const u8{ "assets/models", "Resources/models" };
+    var last_error: anyerror = error.AssetNotFound;
+
+    for (relative_dirs) |dir| {
+        const path = try std.fs.path.join(allocator, &.{ app_dir, "..", dir, name });
+        if (std.Io.Dir.accessAbsolute(io, path, .{})) |_| {
+            return path;
+        } else |err| {
+            last_error = err;
+        }
+        allocator.free(path);
+    }
+
+    return last_error;
+}
+
 fn resolveShaderPath(
     allocator: std.mem.Allocator,
     io: Io,

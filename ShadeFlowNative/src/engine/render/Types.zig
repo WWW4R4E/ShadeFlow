@@ -147,7 +147,13 @@ pub const position_color = VertexLayout{
     .stride = 28,
 };
 
-/// 位置 + 纹理坐标。目前没有使用，留给 2D/精灵路径。
+/// 位置 + 纹理坐标（带纹理管线的顶点格式）。颜色来自纹理采样 × gColor。
+pub const VertexTex = extern struct {
+    position: [3]f32,
+    uv: [2]f32,
+};
+
+/// 与 `VertexTex` 匹配的布局。
 pub const position_texcoord = VertexLayout{
     .elements = &[_]VertexElement{
         .{ .semantic = "POSITION", .format = .f32x3, .offset = 0 },
@@ -210,4 +216,9 @@ test "顶点布局的 stride 与字段偏移自洽" {
     };
     try std.testing.expectEqual(@as(u32, @sizeOf(VertexExt)), position_color.stride);
     try std.testing.expectEqual(@as(u32, @offsetOf(VertexExt, "color")), position_color.elements[1].offset);
+
+    // 带纹理顶点：position(12) + uv(8) = 20。
+    const VertexTexExt = extern struct { position: [3]f32, uv: [2]f32 };
+    try std.testing.expectEqual(@as(u32, @sizeOf(VertexTexExt)), position_texcoord.stride);
+    try std.testing.expectEqual(@as(u32, 12), position_texcoord.elements[1].offset);
 }

@@ -16,6 +16,8 @@ const Viewport = @import("view/Picker.zig").Viewport;
 const Picker = @import("view/Picker.zig").Picker;
 
 const GeometryGenerators = @import("scene/GeometryGenerators.zig").GeometryGenerators;
+const Gltf = @import("asset/Gltf.zig");
+const Png = @import("asset/Png.zig");
 
 pub const GeometryParams = GeometryGenerators.GeometryParams;
 pub const GeometryType = GeometryGenerators.GeometryType;
@@ -127,6 +129,14 @@ pub const Engine = struct {
     // 对象
     // =========================================================================
 
+    fn computeLocalAabbTex(vertices: []const RendererTypes.VertexTex) Aabb {
+        var bounds = Aabb.EMPTY;
+        for (vertices) |vertex| {
+            bounds.expandPoint(vertex.position);
+        }
+        return bounds;
+    }
+
     /// 用顶点位置算局部包围盒（与顶点同空间，不含 `Transform`）。
     /// 顶点数据上传后就不再保留，所以必须在创建对象时算一次。
     fn computeLocalAabb(vertices: []const Vertex) Aabb {
@@ -154,9 +164,11 @@ pub const Engine = struct {
         errdefer vertex_buffer.deinit();
 
         // Shader 堆分配：Pipeline 借用它，必须保证地址在 append/扩容后不变
-        // （见 Object.shader 的注释）。
-        const shader = try self.allocator.create(Renderer.Shader);
-        errdefer self.allocator.destroy(shader);
+        // （见 Object.shader 的注释）。用 page_allocator——Object.deinit 侧
+        // 拿不到引擎 allocator，两边必须同一个（曾因 GPA 分配 + page_allocator
+        // 释放把相邻存活对象一起 munmap，退出时崩溃）。
+        const shader = try std.heap.page_allocator.create(Renderer.Shader);
+        errdefer std.heap.page_allocator.destroy(shader);
         shader.* = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
@@ -198,10 +210,115 @@ pub const Engine = struct {
         var index_buffer = try renderer.createIndexBuffer(indices);
         errdefer index_buffer.deinit();
 
+        try self.appendIndexedObject(&vertex_buffer, &index_buffer, vertices, vertex_shader_path, pixel_shader_path, position);
+    }
+
+    /// 添加带纹理的渲染对象（position_texcoord 顶点 + PNG 颜色纹理）。
+    ///
+    /// 着色器要带 TEXCOORD 语义的变体（Basic3DTextured*），管线随布局自动
+    /// 切换到带纹理变体。
+    pub fn addTexturedIndexedRenderObject(
+        self: *Engine,
+        vertices: []const RendererTypes.VertexTex,
+        indices: []const u32,
+        texture_path: []const u8,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        position: [3]f32,
+    ) !void {
+        const renderer = if (self.renderer) |*r| r else return error.EngineNotInitialized;
+
+        // PNG → RGBA8 → GPU 纹理（像素解完就不再需要 CPU 侧副本）。
+        var image = try Png.load(self.allocator, texture_path);
+        defer image.deinit(self.allocator);
+        var texture: ?Renderer.Texture = try renderer.createTexture(image.pixels, image.width, image.height);
+        errdefer if (texture) |*t| t.deinit();
+
+        var vertex_buffer = try renderer.createVertexBuffer(
+            std.mem.sliceAsBytes(vertices),
+            @sizeOf(RendererTypes.VertexTex),
+        );
+        errdefer vertex_buffer.deinit();
+
+        var index_buffer = try renderer.createIndexBuffer(indices);
+        errdefer index_buffer.deinit();
+
+        // Shader 堆分配（见 appendIndexedObject 同款约定）。
+        const shader = try std.heap.page_allocator.create(Renderer.Shader);
+        errdefer std.heap.page_allocator.destroy(shader);
+        shader.* = try renderer.createShaderFromFiles(
+            vertex_shader_path,
+            pixel_shader_path,
+            RendererTypes.position_texcoord,
+        );
+        errdefer shader.deinit();
+
+        const pipeline = try renderer.createPipeline(shader, .{});
+        errdefer { var p = pipeline; p.deinit(); }
+
+        try self.indexed_render_objects.append(self.allocator, IndexedRenderObject{
+            .object = .{
+                .vertex_buffer = vertex_buffer,
+                .shader = shader,
+                .pipeline = pipeline,
+                .texture = texture,
+                .transform = .{ .position = position },
+                .local_aabb = computeLocalAabbTex(vertices),
+            },
+            .index_buffer = index_buffer,
+            .index_count = @as(u32, @intCast(indices.len)),
+        });
+        texture = null; // 所有权已转移给对象（errdefer 不再触发）
+    }
+
+    /// 从 glTF / glb 文件加载网格（多 primitive 合并为单个索引对象）。
+    ///
+    /// 与其他 add* 一致：失败只 log 不崩（见 `addGeometryObjectWithParams`），
+    /// 着色器路径由调用方给。
+    pub fn addGltfObject(
+        self: *Engine,
+        path: []const u8,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        position: [3]f32,
+    ) void {
+        const geometry = Gltf.load(self.allocator, path) catch |err| {
+            std.log.err("加载 glTF 失败（{s}）: {s}", .{ path, @errorName(err) });
+            return;
+        };
+        var loaded = geometry;
+        defer loaded.deinit(self.allocator);
+
+        self.addIndexedRenderObject(
+            loaded.vertices,
+            loaded.indices,
+            vertex_shader_path,
+            pixel_shader_path,
+            position,
+        ) catch |err| {
+            std.log.err("添加 glTF 对象失败: {s}", .{@errorName(err)});
+        };
+    }
+
+    /// 把已建好顶点/索引缓冲的几何装配成渲染对象入列表（shader/pipeline 在
+    /// 这里建）。`vertex_buffer` / `index_buffer` 的所有权转移到对象上。
+    fn appendIndexedObject(
+        self: *Engine,
+        vertex_buffer: *Renderer.Buffer,
+        index_buffer: *Renderer.Buffer,
+        vertices: []const Vertex,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        position: [3]f32,
+    ) !void {
+        const renderer = if (self.renderer) |*r| r else return error.EngineNotInitialized;
+
         // Shader 堆分配：Pipeline 借用它，必须保证地址在 append/扩容后不变
-        // （见 Object.shader 的注释）。
-        const shader = try self.allocator.create(Renderer.Shader);
-        errdefer self.allocator.destroy(shader);
+        // （见 Object.shader 的注释）。用 page_allocator——Object.deinit 侧
+        // 拿不到引擎 allocator，两边必须同一个（曾因 GPA 分配 + page_allocator
+        // 释放把相邻存活对象一起 munmap，退出时崩溃）。
+        const shader = try std.heap.page_allocator.create(Renderer.Shader);
+        errdefer std.heap.page_allocator.destroy(shader);
         shader.* = try renderer.createShaderFromFiles(
             vertex_shader_path,
             pixel_shader_path,
@@ -214,14 +331,14 @@ pub const Engine = struct {
 
         try self.indexed_render_objects.append(self.allocator, IndexedRenderObject{
             .object = .{
-                .vertex_buffer = vertex_buffer,
+                .vertex_buffer = vertex_buffer.*,
                 .shader = shader,
                 .pipeline = pipeline,
                 .transform = .{ .position = position },
                 .local_aabb = computeLocalAabb(vertices),
             },
-            .index_buffer = index_buffer,
-            .index_count = @as(u32, @intCast(indices.len)),
+            .index_buffer = index_buffer.*,
+            .index_count = index_buffer.count,
         });
     }
 
@@ -396,6 +513,7 @@ pub const Engine = struct {
                 &object.vertex_buffer,
                 object.vertex_buffer.count,
                 std.mem.asBytes(&constants),
+                if (object.texture) |*t| t else null,
             );
         }
 
@@ -415,6 +533,7 @@ pub const Engine = struct {
                 &indexed_render_object.index_buffer,
                 indexed_render_object.index_count,
                 std.mem.asBytes(&constants),
+                if (object.texture) |*t| t else null,
             );
         }
 

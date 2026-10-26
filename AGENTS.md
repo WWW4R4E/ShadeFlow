@@ -8,7 +8,7 @@ macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLaye
 ## 命令（都在 `ShadeFlowNative/` 下执行）
 
 - `zig build` —— 当前目标平台的 exe。Windows 上同时产出 `zig-out/bin/ShadeFlowNative.exe`（独立 HWND 模式）和 `ShadeFlowNative.dll`。
-- `zig build test` —— 单元测试。宿主侧输入状态 + 引擎侧纯数学（Aabb / Matrix / Picker）+ 顶点布局自洽性；纯逻辑、不碰 GPU。资源导入（`asset/`）落地后，glTF / PNG 解析器的测试会加进来。
+- `zig build test` —— 单元测试。宿主侧输入状态 + 引擎侧纯数学（Aabb / Matrix / Picker）+ 顶点布局自洽性 + 资源解析器（`engine/asset/` 的 glTF / PNG，纯 CPU、不碰 GPU；glTF 用例会解析仓库里的 `assets/models/SampleBox.gltf`，文件缺失时自动跳过）。
   - **Zig 只收集「在 test 块里显式引用过」的文件里的测试**，单纯的 import 传递不会把测试带进来（`std/std.zig` 用 `testing.refAllDecls(@This())` 也是这个原因）。所以新增带测试的文件时，必须在 `src/tests.zig` 的 `test` 块里加一行，否则它的用例会**静默不跑**。
   - `render_types` 是独立模块，它的测试不会被 `src/tests.zig` 收进来，`build.zig` 里单独跑一个目标。
 - `zig build run` —— 跑独立窗口 demo（窗口/输入改动的常规验证方式）。
@@ -18,7 +18,9 @@ macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLaye
 - 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
 - 着色器工具链注意：D3D11 用 `compile_shaders.bat`（fxc，SM 5.0）；**D3D12 用 `compile_shaders_d3d12.bat`（dxc，SM 6.0）**，fxc 产出的 vs_5_0 二进制 D3D12 不认。两个脚本产物名相同（`*VS.cso` / `*PS.cso`），切后端后必须重跑对应脚本。
-- 依赖（`win32`、`windowkit`、`vulkan`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
+- 依赖（`win32`、`windowkit`、`vulkan`、`zigimg`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
+- 资源加载：`engine/asset/Gltf.zig`（glTF 2.0 网格 → `Engine.addGltfObject`，支持 data URI / 外部 .bin / GLB，颜色取 COLOR_0 > 材质 baseColorFactor > 白色；RH→LH 转换在解析器里做 X 取反）与 `engine/asset/Png.zig`（zigimg 包装，统一转 RGBA8，顺带支持 JPEG 等格式）。
+- 纹理管线：`createTexture(pixels rgba8, w, h)` 上传 GPU；`draw/drawIndexed` 收 `texture: ?*const Texture` 参数，null 绑渲染器的 1×1 白色默认纹理。顶点布局带 `TEXCOORD` 语义时着色器自动切「带纹理变体」（D3D12 根签名多 t0/s0 描述符表，Vulkan 走 set1 combined image sampler，纹理创建时写好描述符）。引擎入口 `Engine.addTexturedIndexedRenderObject`；demo 纹理 `assets/textures/SampleTexture.jpg`（用户的图片副本，会被 git 跟踪）。样例模型/纹理装到 `zig-out/assets/`，`main.zig` 按 exe 目录相对定位（与 shaders/ 同一套逻辑）。
 - Vulkan 绑定：`vulkan-zig`（钉在 `zig-0.17-compat` 的 commit，用 codeload tarball URL）。它需要 `vendor/vk.xml`（3.3MB，来自 Vulkan-Headers `registry/vk.xml`）在构建期生成 `vk.zig`。升级 Zig 时要同步换 compat 分支，否则会撞 `standardOptimizeOption` 之类的 API 变化。
 
 ## 渲染后端分层（重要）

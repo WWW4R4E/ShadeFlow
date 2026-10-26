@@ -49,6 +49,8 @@ pub const Renderer = struct {
 
     /// 常量缓冲区在第一次 draw 按数据大小懒创建（256 对齐 × 槽数）。
     constant_buffer: ?Buffer = null,
+    /// 1×1 白色默认纹理：不贴图的对象绑它（懒创建，渲染器生命周期持有）。
+    default_texture: ?Texture = null,
 
     // =========================================================================
     // 初始化
@@ -106,6 +108,7 @@ pub const Renderer = struct {
         // 状态，Device.deinit 里的 waitForGpu 才不会碰上非法状态。
         _ = self.device.command_list.Close();
 
+        if (self.default_texture) |*t| t.deinit();
         if (self.constant_buffer) |*cb| cb.deinit();
         self.releasePipelineResources();
         self.depth_texture.deinit();
@@ -240,6 +243,16 @@ pub const Renderer = struct {
         return Shader.loadProgram(&self.device, vertex_path, pixel_path, layout);
     }
 
+    /// 从 RGBA8 像素创建颜色纹理（无 mip，加载期一次性上传）。
+    pub fn createTexture(
+        self: *Renderer,
+        pixels: []const u8,
+        width: u32,
+        height: u32,
+    ) !Texture {
+        return TextureImpl.createRgba8(&self.device, pixels, width, height);
+    }
+
     /// 创建管线：着色器 × 状态一次性烘进 PSO。
     ///
     /// `shader` 由调用方持有并保证活得比返回的 Pipeline 久。
@@ -261,10 +274,11 @@ pub const Renderer = struct {
         vertex_buffer: *const Buffer,
         vertex_count: u32,
         constants: []const u8,
+        texture: ?*const Texture,
     ) void {
         const list = self.device.command_list;
 
-        self.bindDrawState(list, pipeline, constants);
+        self.bindDrawState(list, pipeline, constants, texture);
 
         const vbv = win32.D3D12_VERTEX_BUFFER_VIEW{
             .BufferLocation = vertex_buffer.gpuVirtualAddress(),
@@ -283,10 +297,11 @@ pub const Renderer = struct {
         index_buffer: *const Buffer,
         index_count: u32,
         constants: []const u8,
+        texture: ?*const Texture,
     ) void {
         const list = self.device.command_list;
 
-        self.bindDrawState(list, pipeline, constants);
+        self.bindDrawState(list, pipeline, constants, texture);
 
         const vbv = win32.D3D12_VERTEX_BUFFER_VIEW{
             .BufferLocation = vertex_buffer.gpuVirtualAddress(),
@@ -309,15 +324,25 @@ pub const Renderer = struct {
     // 内部
     // =========================================================================
 
-    /// 每次 draw 都要绑的公共状态：根签名 + 当前帧常量槽 + PSO。
+    /// 每次 draw 都要绑的公共状态：根签名 + 当前帧常量槽 + PSO +（带纹理
+    /// 管线）描述符堆与 SRV/采样器表。
     fn bindDrawState(
         self: *Renderer,
         list: *win32.ID3D12GraphicsCommandList,
         pipeline: *const Pipeline,
         constants: []const u8,
+        texture: ?*const Texture,
     ) void {
         list.SetGraphicsRootSignature(pipeline.shader.root_signature);
         list.SetPipelineState(pipeline.pso);
+
+        if (pipeline.shader.is_textured) {
+            const tex = texture orelse self.ensureDefaultTexture();
+            var heaps = [_]?*win32.ID3D12DescriptorHeap{ self.device.srv_heap, self.device.sampler_heap };
+            list.SetDescriptorHeaps(heaps.len, &heaps);
+            list.SetGraphicsRootDescriptorTable(1, self.device.srvGpuHandle(tex.srv_slot));
+            list.SetGraphicsRootDescriptorTable(2, self.device.samplerGpuHandle(tex.sampler_slot));
+        }
 
         if (constants.len == 0) return;
         self.ensureConstantBuffer(constants.len) catch |err| {
@@ -328,6 +353,18 @@ pub const Renderer = struct {
         const offset = BufferAlignment * self.swap_chain.currentBackBufferIndex();
         cb.updateConstantBuffer(constants, offset);
         list.SetGraphicsRootConstantBufferView(0, cb.gpuVirtualAddress() + offset);
+    }
+
+    /// 首次用到时创建 1×1 白色默认纹理（采样乘回去等于无纹理）。
+    fn ensureDefaultTexture(self: *Renderer) *const Texture {
+        if (self.default_texture == null) {
+            const white = [_]u8{ 255, 255, 255, 255 };
+            self.default_texture = TextureImpl.createRgba8(&self.device, &white, 1, 1) catch |err| {
+                std.log.err("创建默认白纹理失败: {s}", .{@errorName(err)});
+                unreachable; // 没有纹理就无法继续绘制；比画错更诚实。
+            };
+        }
+        return &self.default_texture.?;
     }
 
     /// 首次 draw 按数据大小建环形常量缓冲（256 对齐 × 后台缓冲数）。

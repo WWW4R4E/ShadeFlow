@@ -22,6 +22,10 @@
             .hash = "vulkan-0.0.0-r7Ytxy2BAwCPqBJUCXp6XXMwWqFD3DNrMLWWQvRRSXOC",
             .lazy = true,
         },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg#083d0304840a3f5fd547c2e2005148a18886c401",
+            .hash = "zigimg-0.1.0-8_eo2j1pGAA3ArMKhXcipNR-tdjmeWmByLJhOff2A_X4",
+        },
     },
     .paths = .{
         "build.zig",
