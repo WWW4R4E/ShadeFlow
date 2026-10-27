@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using ShadeFlow.Models;
 using System.Linq;
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace ShadeFlow.Views.Controls
@@ -11,38 +12,166 @@ namespace ShadeFlow.Views.Controls
     {
         private NodeBase _currentNode;
 
+        // 当前在属性面板里编辑的场景对象（null = 未选中）
+        private TreeViewItemModel _currentSceneObject;
+
+        // 参数编辑框（键 = 参数名），Apply 时统一读取
+        private readonly Dictionary<string, TextBox> _paramBoxes = new Dictionary<string, TextBox>();
+
         public PropertiesControl()
         {
             this.InitializeComponent();
-            // TODO 完成选取绑定后删除例子数据
-            LoadSampleNode();
+
+            // 场景树选中（含视口拾取联动）→ 显示对象属性
+            SceneTreeControl.SceneObjectSelected += OnSceneObjectSelected;
+            this.Unloaded += (s, e) => SceneTreeControl.SceneObjectSelected -= OnSceneObjectSelected;
         }
 
-        private void LoadSampleNode()
+        // ------------------------------------------------------------------
+        // 对象属性（场景对象）
+        // ------------------------------------------------------------------
+
+        private void OnSceneObjectSelected(object sender, TreeViewItemModel item)
         {
-            // 创建一个示例节点作为默认显示
-            var sampleNode = new NodeBase
+            ShowSceneObject(item);
+        }
+
+        private void ShowSceneObject(TreeViewItemModel item)
+        {
+            _currentSceneObject = item;
+            _paramBoxes.Clear();
+            ParamsPanel.Children.Clear();
+
+            if (item?.SceneData == null)
             {
-                Title = "Sample Shader Node",
-                Description = "A sample shader node for demonstration"
+                // 分组节点 / 未选中：隐藏对象属性区，回到空态提示
+                ObjectPanel.Visibility = Visibility.Collapsed;
+                NoSelectionText.Text = "在场景树或 3D 视口中选择一个对象";
+                NoSelectionText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            var data = item.SceneData;
+            NoSelectionText.Visibility = Visibility.Collapsed;
+            ObjectPanel.Visibility = Visibility.Visible;
+
+            ObjectNameBox.Text = item.Name;
+            ObjectTypeText.Text = data.Type;
+
+            PosXBox.Text = data.Position[0].ToString("0.###");
+            PosYBox.Text = data.Position[1].ToString("0.###");
+            PosZBox.Text = data.Position[2].ToString("0.###");
+
+            AddParamBox(data.Type == "cube" ? "size" : "radius", data.Type == "cube" ? data.Size : data.Radius);
+            if (data.Type == "cylinder" || data.Type == "cone")
+            {
+                AddParamBox("height", data.Height);
+            }
+            if (data.Type != "cube")
+            {
+                AddParamBox("segments", data.Segments);
+            }
+        }
+
+        private void AddParamBox(string name, double value)
+        {
+            var label = new TextBlock
+            {
+                Text = name,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 2)
+            };
+            var box = new TextBox
+            {
+                Text = value.ToString("0.###"),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            ParamsPanel.Children.Add(label);
+            ParamsPanel.Children.Add(box);
+            _paramBoxes[name] = box;
+        }
+
+        // 应用：把面板里的值写回 SceneData；参数/位置变化走「单删 + 原位重建」
+        private void ApplyObjectButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentSceneObject?.SceneData == null || SceneTreeControl.Instance == null) return;
+
+            var old = _currentSceneObject.SceneData;
+            var data = new SceneObjectData
+            {
+                Type = old.Type,
+                Name = string.IsNullOrWhiteSpace(ObjectNameBox.Text) ? old.Name : ObjectNameBox.Text,
+                Size = old.Size,
+                Radius = old.Radius,
+                Height = old.Height,
+                Segments = old.Segments,
+                Position = old.Position
             };
 
-            // 添加一些示例属性
-            sampleNode.Properties.Add(new Property { Name = "Time", Type = typeof(float), Value = 1.5f });
-            sampleNode.Properties.Add(new Property { Name = "Scale", Type = typeof(float), Value = 2.0f });
-            sampleNode.Properties.Add(new Property { Name = "Enabled", Type = typeof(bool), Value = true });
-            sampleNode.Properties.Add(new Property { Name = "Resolution", Type = typeof(Vector2), Value = "800, 600" });
-
-            // 添加示例输入端口 - 使用已知类型或通用object类型
-            sampleNode.InputPorts.Add(new Port { Name = "Texture Input", Type = typeof(object), IsInput = true });
-            sampleNode.InputPorts.Add(new Port { Name = "Normal Map", Type = typeof(object), IsInput = true });
-
-            // 添加示例输出端口
-            sampleNode.OutputPorts.Add(new Port { Name = "Color Output", Type = typeof(Vector4), IsInput = false });
-            sampleNode.OutputPorts.Add(new Port { Name = "Depth Output", Type = typeof(float), IsInput = false });
-
-            UpdateProperties(sampleNode);
+            if (TryReadFloat(PosXBox, v => data.Position[0] = v) &&
+                TryReadFloat(PosYBox, v => data.Position[1] = v) &&
+                TryReadFloat(PosZBox, v => data.Position[2] = v) &&
+                TryReadParams(data))
+            {
+                if (SceneTreeControl.Instance.UpdateObjectParams(_currentSceneObject, data))
+                {
+                    // 名字可能被改：同步树节点显示
+                    _currentSceneObject.Name = data.Name;
+                    ShowSceneObject(_currentSceneObject);
+                }
+                else
+                {
+                    ShowApplyError("应用失败：引擎重建对象出错，详见 Debug 输出。");
+                }
+            }
+            else
+            {
+                ShowApplyError("参数格式不正确，请输入有效数字。");
+            }
         }
+
+        private bool TryReadFloat(TextBox box, Action<double> assign)
+        {
+            if (double.TryParse(box.Text, out double value))
+            {
+                assign(value);
+                return true;
+            }
+            return false;
+        }
+
+        private bool TryReadParams(SceneObjectData data)
+        {
+            foreach (var pair in _paramBoxes)
+            {
+                if (!double.TryParse(pair.Value.Text, out double value)) return false;
+                switch (pair.Key)
+                {
+                    case "size": data.Size = value; break;
+                    case "radius": data.Radius = value; break;
+                    case "height": data.Height = value; break;
+                    case "segments": data.Segments = System.Convert.ToUInt32(Math.Max(3, Math.Round(value))); break;
+                }
+            }
+            return true;
+        }
+
+        private async void ShowApplyError(string message)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "对象属性",
+                Content = message,
+                CloseButtonText = "确定",
+                XamlRoot = this.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+
+        // ------------------------------------------------------------------
+        // 着色器节点属性（节点编辑器）
+        // ------------------------------------------------------------------
 
         public void UpdateProperties(NodeBase node)
         {

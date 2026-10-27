@@ -19,6 +19,12 @@ namespace ShadeFlow.Views.Controls
         /// </summary>
         public static SceneTreeControl? Instance { get; private set; }
 
+        /// <summary>
+        /// 场景树选中变化时触发（视口拾取联动也会走到这里）；参数为选中的节点，
+        /// 取消选中时为 null。属性面板订阅它显示对象属性。
+        /// </summary>
+        public static event EventHandler<TreeViewItemModel> SceneObjectSelected;
+
         private ObservableCollection<TreeViewItemModel> _treeViewItems;
 
         public SceneTreeControl()
@@ -30,6 +36,12 @@ namespace ShadeFlow.Views.Controls
             // 3D 视口里左键拾取 → 场景树联动选中（Unloaded 退订防泄漏）。
             SwapChainControl.ObjectPicked += OnViewportObjectPicked;
             this.Unloaded += (s, e) => SwapChainControl.ObjectPicked -= OnViewportObjectPicked;
+
+            // 树选中 → 属性面板（含取消选中）
+            SceneTreeView.SelectionChanged += (s, e) =>
+            {
+                SceneObjectSelected?.Invoke(this, SceneTreeView.SelectedItem as TreeViewItemModel);
+            };
         }
 
         // 视口拾取联动：按引擎索引找到树节点并选中（点空处引擎已清空选中，树不动）。
@@ -842,6 +854,38 @@ namespace ShadeFlow.Views.Controls
             {
                 ShiftEngineIndexesRecursive(child, removedIndex);
             }
+        }
+
+        // 更新对象参数/位置：引擎没有「改参数」的入口，走单删 + 追加重建。
+        // 位置不变时结果视觉上无感；索引簿记保持与其他对象一一对应。
+        // 失败返回 false（树节点保留，调用方提示）。
+        public bool UpdateObjectParams(TreeViewItemModel item, SceneObjectData newData)
+        {
+            if (item.EngineIndex < 0) return false;
+
+            int oldIndex = item.EngineIndex;
+            if (!ShadeFlowNative.RemoveRenderObject(oldIndex))
+            {
+                Debug.WriteLine($"重建对象失败：引擎删除索引 {oldIndex} 未命中");
+                return false;
+            }
+            ShiftEngineIndexes(oldIndex);
+
+            int newIndex = CountEngineItems();
+            var p = ParamsFromData(newData);
+            if (ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(
+                    ref p,
+                    (float)newData.Position[0], (float)newData.Position[1], (float)newData.Position[2],
+                    null, null))
+            {
+                item.EngineIndex = newIndex;
+                item.SceneData = newData;
+                return true;
+            }
+
+            Debug.WriteLine("重建对象失败：引擎添加未成功，树节点已失去引擎对象");
+            item.EngineIndex = -1;
+            return false;
         }
 
         // 查找Geometry节点

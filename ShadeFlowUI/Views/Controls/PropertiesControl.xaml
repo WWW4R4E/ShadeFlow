@@ -43,9 +43,9 @@
         <!-- 属性列表 -->
         <ScrollViewer Grid.Row="1" Padding="8,8,8,8">
             <StackPanel>
-                <TextBlock 
+                <TextBlock
                     x:Name="NoSelectionText"
-                    Text="选择一个节点来编辑其属性"
+                    Text="在场景树或 3D 视口中选择一个对象"
                     FontSize="14"
                     Opacity="0.5"
                     HorizontalAlignment="Center"
@@ -53,20 +53,54 @@
                     Margin="20"
                     TextWrapping="Wrap"
                     Visibility="Visible" />
-                    
+
+                <!--  对象属性（场景树 / 视口选中场景对象时显示）  -->
+                <StackPanel x:Name="ObjectPanel" Visibility="Collapsed">
+                    <TextBlock Text="对象属性" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12" />
+
+                    <TextBlock Text="名称" FontSize="12" Margin="0,0,0,4" />
+                    <TextBox x:Name="ObjectNameBox" FontSize="12" Margin="0,0,0,12" />
+
+                    <TextBlock Text="类型" FontSize="12" Margin="0,0,0,4" />
+                    <TextBlock x:Name="ObjectTypeText" FontSize="12" Opacity="0.7" Margin="0,0,0,12" />
+
+                    <TextBlock Text="位置 (X / Y / Z)" FontSize="12" Margin="0,0,0,4" />
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PosXBox" Grid.Column="0" FontSize="12" Margin="0,0,2,0" />
+                        <TextBox x:Name="PosYBox" Grid.Column="1" FontSize="12" Margin="1,0" />
+                        <TextBox x:Name="PosZBox" Grid.Column="2" FontSize="12" Margin="2,0,0,0" />
+                    </Grid>
+
+                    <TextBlock Text="几何参数" FontSize="12" Margin="0,0,0,4" />
+                    <StackPanel x:Name="ParamsPanel" Margin="0,0,0,12">
+                        <!--  按类型动态填充：size 或 radius/height/segments  -->
+                    </StackPanel>
+
+                    <Button
+                        x:Name="ApplyObjectButton"
+                        Content="应用到对象"
+                        HorizontalAlignment="Right"
+                        Click="ApplyObjectButton_Click" />
+                </StackPanel>
+
                 <StackPanel x:Name="PropertyEditorPanel" Visibility="Collapsed">
                     <TextBlock Text="常量" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12" />
 
                     <StackPanel x:Name="ConstantsPanel">
                         <!-- 这里将动态填充常量编辑器 -->
                     </StackPanel>
-                    
+
                     <TextBlock Text="输入" FontSize="14" FontWeight="SemiBold" Margin="0,16,0,12" />
 
                     <StackPanel x:Name="InputsPanel">
                         <!-- 这里将动态填充输入编辑器 -->
                     </StackPanel>
-                    
+
                     <TextBlock Text="输出" FontSize="14" FontWeight="SemiBold" Margin="0,16,0,12" />
 
                     <StackPanel x:Name="OutputsPanel">
