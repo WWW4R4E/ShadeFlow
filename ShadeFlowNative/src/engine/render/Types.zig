@@ -4,7 +4,7 @@
 //! 任何 `ID3D11*` / `Vk*` 之类的具体 API 类型都必须待在 `backend/<api>/` 里，
 //! 由具体后端把它们翻译成自己的描述结构。
 //!
-//! 枚举值不带显式整型宽度：D3D11/D3D12 与 Vulkan 的对应关系由后端 switch
+//! 枚举值不带显式整型宽度：D3D12 与 Vulkan 的对应关系由后端 switch
 //! 完成，不要让 UI 或 C# 侧依赖某个后端的具体数值。
 
 const std = @import("std");
@@ -15,7 +15,7 @@ const std = @import("std");
 
 /// 当前编译进程序的后端。构建脚本按 `-Dbackend` 直接选模块，所以运行期
 /// 不会出现另一种值。
-pub const BackendKind = enum { d3d11, d3d12, vulkan };
+pub const BackendKind = enum { d3d12, vulkan };
 
 /// 着色器二进制格式：D3D12 是 dxc 产出的 DXBC/DXIL（`.cso`），Vulkan 是
 /// SPIR-V（`.spv`）。`main.zig` 按它选文件后缀。
@@ -82,7 +82,7 @@ pub const RasterState = struct {
 ///
 /// 这是契约以「严格后端」为基线的结果——D3D12 烘进 PSO、Vulkan 烘进
 /// `VkPipeline`，不存在「随时改状态」这个操作。默认值是重构前两个后端的
-/// **实际生效状态**（D3D11/Vulkan 的 Renderer 字段默认值，Engine 从不覆盖）。
+/// **实际生效状态**（历史默认值，Engine 从不覆盖）。
 /// 注意 `cull` 是 `.none` 而不是 `RasterState` 的结构体默认 `.back`：几何
 /// 生成器的面绕序还没按 D3D 约定审计过，贸然开背面剔除会把正面剔掉
 /// （表现为立方体「破洞」、后面的物体透出来，像遮挡错误）。
@@ -178,7 +178,7 @@ pub const position_texcoord = VertexLayout{
 /// 反向依赖窗口库，窗口适配层负责做一次转换。这样 Linux 渲染分支可以在没有
 /// windowkit/wayland 链接项的情况下单独做类型检查。
 pub const NativeWindow = union(enum) {
-    /// Windows：HWND + HINSTANCE。D3D11/D3D12 只用 hwnd；Vulkan surface 两者都要。
+    /// Windows：HWND + HINSTANCE。D3D12 只用 hwnd；Vulkan surface 两者都要。
     win32: struct {
         hwnd: *anyopaque,
         hinstance: *anyopaque,

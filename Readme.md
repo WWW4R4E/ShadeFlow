@@ -26,7 +26,6 @@ ShadeFlow/
 │   │   │   ├── view/         # 相机与拾取
 │   │   │   └── render/       # 渲染门面（Types.zig + Renderer.zig）
 │   │   │       └── backend/  # d3d12（Windows 默认）/ vulkan（Linux、macOS/MoltenVK）
-│   │   │                    #   d3d11/ 已冻结待删（不满足显式管线契约）
 │   │   ├── capi.zig          # Windows 专用 C-ABI 导出（WinUI 3 / Composition）
 │   │   ├── main.zig          # 独立窗口宿主入口
 │   │   └── tests.zig         # zig build test 的用例收集根
@@ -35,7 +34,6 @@ ShadeFlow/
 │   │   ├── models/           # 样例模型（SampleBox.gltf / BoxTextured.glb）
 │   │   └── textures/         # 样例贴图
 │   ├── vendor/vk.xml         # Vulkan registry（构建期生成绑定）
-│   ├── compile_shaders.bat        # D3D11 着色器（fxc，已冻结）
 │   ├── compile_shaders_d3d12.bat  # D3D12 着色器（dxc，SM 6.0）
 │   └── build.zig             # Zig 构建配置
 ├── ShadeFlowUI/              # WinUI 3 界面项目
@@ -66,8 +64,7 @@ ShadeFlow/
 | Linux | Vulkan | Wayland（windowkit） |
 | macOS | Vulkan（MoltenVK） | AppKit + `CAMetalLayer`（windowkit） |
 
-- Windows 用 `-Dbackend=vulkan` 切 Vulkan；`-Dbackend=d3d11` 不可用（D3D11
-  后端已冻结待删，编译期契约检查会直接报错）。
+- Windows 用 `-Dbackend=vulkan` 切 Vulkan。
 - 渲染契约以「严格后端」为基线：管线状态在 `createPipeline` 时定型
   （D3D12 烘进 PSO、Vulkan 烤进 `VkPipeline`），常量与纹理随 draw 参数传入，
   没有 D3D11 式的即时状态修改。
