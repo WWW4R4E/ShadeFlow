@@ -106,7 +106,8 @@ pub const Buffer = struct {
             .Width = size,
             .Height = 1,
             .DepthOrArraySize = 1,
-            .MipLevels = 0,
+            // buffer 资源的 MipLevels 必须是 1（写 0 报 CREATERESOURCE_INVALIDMIPLEVELS / E_INVALIDARG）
+            .MipLevels = 1,
             .Format = .UNKNOWN,
             .SampleDesc = .{ .Count = 1, .Quality = 0 },
             .Layout = .ROW_MAJOR,
