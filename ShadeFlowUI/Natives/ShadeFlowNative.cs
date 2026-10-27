@@ -7,7 +7,7 @@ namespace ShadeFlow.Natives
 {
     /// <summary>
     /// Zig原生库的C#包装类，提供P/Invoke接口
-    /// 这个类用于从C#调用Zig编写的DirectX11渲染库
+    /// 这个类用于从C#调用Zig编写的ShadeFlow渲染引擎（D3D12 / Vulkan）
     /// </summary>
     public static class ShadeFlowNative
     {
@@ -104,36 +104,51 @@ namespace ShadeFlow.Natives
         public static extern bool ShadeFlow_RenderFrame();
 
         /// <summary>
-        /// 添加一个三角形到渲染场景
-        /// </summary>
-        /// <param name="vertices">三个顶点组成的数组</param>
-        /// <returns>成功返回true，失败返回false</returns>
-        /// <summary>
         /// 添加渲染对象（简单三角形）
         /// </summary>
-        /// <param name="vertex_shader_path">顶点着色器路径</param>
-        /// <param name="pixel_shader_path">像素着色器路径</param>
-        /// <returns>是否成功添加</returns>
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddTriangleObject(string vertex_shader_path, string pixel_shader_path);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool ShadeFlow_AddCubeWithParams(float size, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool ShadeFlow_AddSphereWithParams(float radius, uint segments, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool ShadeFlow_AddCylinderWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool ShadeFlow_AddConeWithParams(float radius, float height, uint segments, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
-        /// 添加带索引的渲染对象（四边形）
+        /// 添加贴图立方体（内部生成 UV cube，纹理支持 PNG/JPEG）。
+        /// 着色器路径传 null 用引擎默认的 Basic3DTextured*。
         /// </summary>
-        /// <param name="vertex_shader_path">顶点着色器路径</param>
-        /// <param name="pixel_shader_path">像素着色器路径</param>
-        /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddQuadObject(string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddTexturedCube(float size, string texture_path, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path);
 
         /// <summary>
-        /// 添加旋转立方体渲染对象
+        /// 加载 glTF / GLB 模型（每个 primitive 一个渲染对象，带贴图的 part 自动走纹理路径）。
+        /// 着色器路径传 null 用引擎默认着色器。
         /// </summary>
-        /// <param name="vertex_shader_path">顶点着色器路径</param>
-        /// <param name="pixel_shader_path">像素着色器路径</param>
-        /// <returns>是否成功添加</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern bool ShadeFlow_AddRotatingCubeObject(string vertex_shader_path, string pixel_shader_path);
+        public static extern bool ShadeFlow_AddGltfObject(string path, float pos_x, float pos_y, float pos_z,
+            string vertex_shader_path, string pixel_shader_path, string textured_vs_path, string textured_ps_path);
+
+        /// <summary>
+        /// 屏幕坐标拾取（客户区物理像素；命中选中该物体，未命中清空选中）
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ShadeFlow_PickAt(float screen_x, float screen_y);
+
+        /// <summary>
+        /// 设置相机注视点（orbit / pan 的中心）
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ShadeFlow_SetCameraTarget(float x, float y, float z);
 
         /// <summary>
         /// 清除所有渲染对象
@@ -350,7 +365,10 @@ namespace ShadeFlow.Natives
             Cube = 2,
             Sphere = 3,
             Cylinder = 4,
-            Cone = 5
+            Cone = 5,
+            Line = 6,
+            Rect = 7,
+            FilledRect = 8
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -704,6 +722,81 @@ namespace ShadeFlow.Natives
                 Debug.WriteLine($"设置相机宽高比错误: {ex.Message}");
                 throw;
             }
+        }
+
+        // =====================================================================
+        // 场景构建（与独立窗口 main.zig 能力对齐：几何体 / 贴图 / glTF / 拾取）
+        // =====================================================================
+
+        /// <summary>
+        /// 添加带参数的立方体
+        /// </summary>
+        public static void AddCube(float size, float x, float y, float z, string vs = null, string ps = null)
+        {
+            if (!ShadeFlow_AddCubeWithParams(size, x, y, z, vs, ps))
+                throw new Exception("添加立方体失败（引擎未初始化或着色器缺失，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 添加带参数的球体
+        /// </summary>
+        public static void AddSphere(float radius, uint segments, float x, float y, float z, string vs = null, string ps = null)
+        {
+            if (!ShadeFlow_AddSphereWithParams(radius, segments, x, y, z, vs, ps))
+                throw new Exception("添加球体失败（引擎未初始化或着色器缺失，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 添加带参数的圆柱体
+        /// </summary>
+        public static void AddCylinder(float radius, float height, uint segments, float x, float y, float z, string vs = null, string ps = null)
+        {
+            if (!ShadeFlow_AddCylinderWithParams(radius, height, segments, x, y, z, vs, ps))
+                throw new Exception("添加圆柱体失败（引擎未初始化或着色器缺失，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 添加带参数的圆锥体
+        /// </summary>
+        public static void AddCone(float radius, float height, uint segments, float x, float y, float z, string vs = null, string ps = null)
+        {
+            if (!ShadeFlow_AddConeWithParams(radius, height, segments, x, y, z, vs, ps))
+                throw new Exception("添加圆锥体失败（引擎未初始化或着色器缺失，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 添加贴图立方体（纹理支持 PNG/JPEG；着色器传 null 用默认 Basic3DTextured*）
+        /// </summary>
+        public static void AddTexturedCube(float size, string texturePath, float x, float y, float z, string vs = null, string ps = null)
+        {
+            if (!ShadeFlow_AddTexturedCube(size, texturePath, x, y, z, vs, ps))
+                throw new Exception("添加贴图立方体失败（纹理或着色器加载失败，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 加载 glTF / GLB 模型（着色器传 null 用引擎默认着色器）
+        /// </summary>
+        public static void AddGltfObject(string path, float x, float y, float z,
+            string vs = null, string ps = null, string texVs = null, string texPs = null)
+        {
+            if (!ShadeFlow_AddGltfObject(path, x, y, z, vs, ps, texVs, texPs))
+                throw new Exception("加载 glTF 失败（引擎未初始化，详见引擎日志）");
+        }
+
+        /// <summary>
+        /// 屏幕坐标拾取（客户区物理像素）
+        /// </summary>
+        public static void PickAt(float screenX, float screenY)
+        {
+            ShadeFlow_PickAt(screenX, screenY);
+        }
+
+        /// <summary>
+        /// 设置相机注视点（orbit / pan 的中心）
+        /// </summary>
+        public static void SetCameraTarget(float x, float y, float z)
+        {
+            ShadeFlow_SetCameraTarget(x, y, z);
         }
     }
 }

@@ -15,6 +15,7 @@ const win32 = @import("win32").everything;
 // 再嵌一份进 DLL 模块，引擎就会有两份定义。
 const Engine = @import("shadeflow_engine").Engine;
 const GeometryGenerators = @import("shadeflow_engine").GeometryGenerators;
+const shader_format = @import("shadeflow_engine").shader_format;
 
 var gpa = std.heap.DebugAllocator(.{}){};
 var allocator = gpa.allocator();
@@ -48,6 +49,73 @@ const LogCallbackPtr = *const fn (level: c_int, message: [*c]const u8) callconv(
 
 /// 引擎实例的全局存储
 var engine_instance: ?*Engine = null;
+
+// =========================================================================
+// 默认着色器路径
+// =========================================================================
+//
+// main.zig 的独立窗口宿主会自己按 exe 目录解析 `shaders/` 下的着色器；
+// WinUI 3 侧 C# 不应该关心这件事，所以着色器路径参数一律可为 null，
+// 回退到这里的默认值——按**宿主 exe 目录**（GetModuleFileNameW(null)）
+// 相对定位 `shaders/`，后缀跟随后端（D3D12 的 .cso / Vulkan 的 .spv）。
+// DLL 需要和宿主 exe 同目录（`zig build dll` 已保证）。
+
+var default_vs: ?[:0]u8 = null;
+var default_ps: ?[:0]u8 = null;
+var default_tex_vs: ?[:0]u8 = null;
+var default_tex_ps: ?[:0]u8 = null;
+
+fn ensureDefaultShaderPaths() void {
+    if (default_vs != null) return;
+
+    var wbuf: [512]u16 = undefined;
+    const wlen = win32.GetModuleFileNameW(null, @ptrCast(&wbuf), wbuf.len);
+    if (wlen == 0 or wlen >= wbuf.len) {
+        log(LogLevel.Error, "[capi] 获取宿主 exe 路径失败，默认着色器不可用\n", .{});
+        return;
+    }
+
+    const page = std.heap.page_allocator;
+    const exe_path_u8 = std.unicode.utf16LeToUtf8Alloc(page, wbuf[0..wlen]) catch |err| {
+        log(LogLevel.Error, "[capi] exe 路径 UTF-16 转换失败: {s}\n", .{@errorName(err)});
+        return;
+    };
+    defer page.free(exe_path_u8);
+
+    const app_dir = std.fs.path.dirname(exe_path_u8) orelse return;
+    const ext = switch (shader_format) {
+        .dxbc => "cso",
+        .spirv => "spv",
+    };
+    const names = [_][]const u8{
+        "Basic3DVS",          "Basic3DPS",
+        "Basic3DTexturedVS",  "Basic3DTexturedPS",
+    };
+
+    const slots = [_]*?[:0]u8{ &default_vs, &default_ps, &default_tex_vs, &default_tex_ps };
+    for (names, slots) |name, slot| {
+        const full = std.fs.path.join(page, &.{ app_dir, "shaders", name }) catch continue;
+        defer page.free(full);
+
+        // 补后缀 + 哨兵（着色器加载吃 [*:0] / []const u8，统一转成哨兵串）。
+        const with_ext = std.fmt.allocPrint(page, "{s}.{s}", .{ full, ext }) catch continue;
+        const sentineled = page.allocSentinel(u8, with_ext.len, 0) catch {
+            page.free(with_ext);
+            continue;
+        };
+        @memcpy(sentineled[0..with_ext.len], with_ext);
+        page.free(with_ext);
+        slot.* = sentineled;
+        log(LogLevel.Info, "[capi] 默认着色器: {s}\n", .{sentineled});
+    }
+}
+
+/// 可空路径参数 → 哨兵切片：null 时回退默认着色器。
+fn pathOrDefault(path: ?[*:0]const u8, default: ?[:0]u8) [:0]const u8 {
+    if (path) |p| return std.mem.sliceTo(p, 0);
+    if (default) |d| return d;
+    return "";
+}
 
 /// 日志输出
 pub fn log(level_enum: LogLevel, comptime format: []const u8, args: anytype) void {
@@ -96,6 +164,7 @@ export fn ShadeFlow_CreateEngineForComposition(
     };
 
     log(LogLevel.Info, "[ShadeFlow_CreateEngineForComposition] Engine created successfully\n", .{});
+    ensureDefaultShaderPaths();
     return true;
 }
 
@@ -159,6 +228,14 @@ export fn ShadeFlow_Cleanup() void {
         log(LogLevel.Info, "[ShadeFlow_Cleanup] Memory properly deallocated\n", .{});
     }
 
+    // 默认着色器路径是 page_allocator 分配的，进程级一次性资源：释放后
+    // 下次 CreateEngineForComposition 会重新解析（exe 目录可能已变）。
+    const defaults = [_]*?[:0]u8{ &default_vs, &default_ps, &default_tex_vs, &default_tex_ps };
+    for (defaults) |slot| {
+        if (slot.*) |p| std.heap.page_allocator.free(p);
+        slot.* = null;
+    }
+
     log_callback = null;
     log(LogLevel.Info, "[ShadeFlow_Cleanup] Cleanup completed\n", .{});
 }
@@ -190,50 +267,52 @@ export fn ShadeFlow_RegisterLogCallback(callback: *const anyopaque) void {
     log(LogLevel.Info, "[ShadeFlow_RegisterLogCallback] Log callback registered successfully\n", .{});
 }
 
-/// 添加带参数的立方体
+/// 添加带参数的立方体（着色器路径传 null 用默认着色器）
 export fn ShadeFlow_AddCubeWithParams(
     size: f32,
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
 ) bool {
+    ensureDefaultShaderPaths();
     if (engine_instance) |engine| {
         const params = GeometryGenerators.GeometryParams{
             .Cube = GeometryGenerators.CubeParams{ .size = size },
         };
 
-        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, pathOrDefault(vertex_shader_path, default_vs), pathOrDefault(pixel_shader_path, default_ps));
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCubeWithParams] Engine not initialized", .{});
     return false;
 }
 
-/// 添加带参数的球体
+/// 添加带参数的球体（着色器路径传 null 用默认着色器）
 export fn ShadeFlow_AddSphereWithParams(
     radius: f32,
     segments: u32,
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
 ) bool {
+    ensureDefaultShaderPaths();
     if (engine_instance) |engine| {
         const params = GeometryGenerators.GeometryParams{
             .Sphere = GeometryGenerators.SphereParams{ .radius = radius, .segments = segments },
         };
 
-        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, pathOrDefault(vertex_shader_path, default_vs), pathOrDefault(pixel_shader_path, default_ps));
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddSphereWithParams] Engine not initialized", .{});
     return false;
 }
 
-/// 添加带参数的圆柱体
+/// 添加带参数的圆柱体（着色器路径传 null 用默认着色器）
 export fn ShadeFlow_AddCylinderWithParams(
     radius: f32,
     height: f32,
@@ -241,22 +320,23 @@ export fn ShadeFlow_AddCylinderWithParams(
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
 ) bool {
+    ensureDefaultShaderPaths();
     if (engine_instance) |engine| {
         const params = GeometryGenerators.GeometryParams{
             .Cylinder = GeometryGenerators.CylinderParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, pathOrDefault(vertex_shader_path, default_vs), pathOrDefault(pixel_shader_path, default_ps));
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddCylinderWithParams] Engine not initialized", .{});
     return false;
 }
 
-/// 添加带参数的圆锥体
+/// 添加带参数的圆锥体（着色器路径传 null 用默认着色器）
 export fn ShadeFlow_AddConeWithParams(
     radius: f32,
     height: f32,
@@ -264,15 +344,16 @@ export fn ShadeFlow_AddConeWithParams(
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
-    vertex_shader_path_ptr: [*:0]const u8,
-    pixel_shader_path_ptr: [*:0]const u8,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
 ) bool {
+    ensureDefaultShaderPaths();
     if (engine_instance) |engine| {
         const params = GeometryGenerators.GeometryParams{
             .Cone = GeometryGenerators.ConeParams{ .radius = radius, .height = height, .segments = segments },
         };
 
-        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, vertex_shader_path_ptr, pixel_shader_path_ptr);
+        engine.addGeometryObjectWithParams(&params, pos_x, pos_y, pos_z, pathOrDefault(vertex_shader_path, default_vs), pathOrDefault(pixel_shader_path, default_ps));
         return true;
     }
     log(LogLevel.Error, "[ShadeFlow_AddConeWithParams] Engine not initialized", .{});
@@ -386,7 +467,7 @@ export fn ShadeFlow_SetCameraDistance(distance: f32) void {
 /// 相机缩放
 export fn ShadeFlow_CameraZoom(delta: f32) void {
     if (engine_instance) |engine| {
-        engine.camera.zoom(delta);
+        engine.cameraZoom(delta);
         log(LogLevel.Debug, "[ShadeFlow_CameraZoom] Camera zoom delta: {d:.2}\n", .{delta});
     } else {
         log(LogLevel.Error, "[ShadeFlow_CameraZoom] Engine not initialized\n", .{});
@@ -396,7 +477,7 @@ export fn ShadeFlow_CameraZoom(delta: f32) void {
 /// 相机平移
 export fn ShadeFlow_CameraPan(delta_x: f32, delta_y: f32) void {
     if (engine_instance) |engine| {
-        engine.camera.pan(delta_x, delta_y);
+        engine.cameraPan(delta_x, delta_y);
         log(LogLevel.Debug, "[ShadeFlow_CameraPan] Camera pan delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
     } else {
         log(LogLevel.Error, "[ShadeFlow_CameraPan] Engine not initialized\n", .{});
@@ -406,7 +487,7 @@ export fn ShadeFlow_CameraPan(delta_x: f32, delta_y: f32) void {
 /// 绕中心旋转相机
 export fn ShadeFlow_CameraRotateAroundCenter(delta_x: f32, delta_y: f32) void {
     if (engine_instance) |engine| {
-        engine.camera.rotateAroundCenter(delta_x, delta_y);
+        engine.cameraOrbit(delta_x, delta_y);
         log(LogLevel.Debug, "[ShadeFlow_CameraRotateAroundCenter] Camera rotate delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
     } else {
         log(LogLevel.Error, "[ShadeFlow_CameraRotateAroundCenter] Engine not initialized\n", .{});
@@ -416,7 +497,7 @@ export fn ShadeFlow_CameraRotateAroundCenter(delta_x: f32, delta_y: f32) void {
 /// 相机自转
 export fn ShadeFlow_CameraRotateSelf(delta_x: f32, delta_y: f32) void {
     if (engine_instance) |engine| {
-        engine.camera.rotateSelf(delta_x, delta_y);
+        engine.cameraSelfRotate(delta_x, delta_y);
         log(LogLevel.Debug, "[ShadeFlow_CameraRotateSelf] Camera self rotate delta: {d:.2}, {d:.2}\n", .{ delta_x, delta_y });
     } else {
         log(LogLevel.Error, "[ShadeFlow_CameraRotateSelf] Engine not initialized\n", .{});
@@ -431,4 +512,90 @@ export fn ShadeFlow_CameraSetAspectRatio(width: u32, height: u32) void {
     } else {
         log(LogLevel.Error, "[ShadeFlow_CameraSetAspectRatio] Engine not initialized\n", .{});
     }
+}
+
+/// 设置相机注视点（orbit / pan 的中心）。
+export fn ShadeFlow_SetCameraTarget(x: f32, y: f32, z: f32) void {
+    if (engine_instance) |engine| {
+        engine.camera.target = .{ x, y, z };
+        log(LogLevel.Info, "[ShadeFlow_SetCameraTarget] Camera target: {d:.2}, {d:.2}, {d:.2}\n", .{ x, y, z });
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_SetCameraTarget] Engine not initialized\n", .{});
+    }
+}
+
+/// 屏幕坐标拾取（客户区物理像素，与 SwapChainPanel 尺寸同一坐标系）。
+export fn ShadeFlow_PickAt(screen_x: f32, screen_y: f32) void {
+    if (engine_instance) |engine| {
+        engine.pickAt(screen_x, screen_y);
+    } else {
+        log(LogLevel.Error, "[ShadeFlow_PickAt] Engine not initialized\n", .{});
+    }
+}
+
+/// 添加贴图立方体：内部生成 UV cube（每面贴图坐标），PNG/JPEG 由引擎解码。
+/// 着色器路径传 null 用默认带纹理着色器（Basic3DTextured*）。
+export fn ShadeFlow_AddTexturedCube(
+    size: f32,
+    texture_path: [*:0]const u8,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
+) bool {
+    ensureDefaultShaderPaths();
+    if (engine_instance) |engine| {
+        const uv_cube = GeometryGenerators.generateCubeUV(std.heap.page_allocator, .{ .size = size }) catch |err| {
+            log(LogLevel.Error, "[ShadeFlow_AddTexturedCube] 生成 UV cube 失败: {s}\n", .{@errorName(err)});
+            return false;
+        };
+        defer {
+            std.heap.page_allocator.free(uv_cube.vertices);
+            std.heap.page_allocator.free(uv_cube.indices);
+        }
+
+        engine.addTexturedIndexedRenderObject(
+            uv_cube.vertices,
+            uv_cube.indices,
+            std.mem.sliceTo(texture_path, 0),
+            pathOrDefault(vertex_shader_path, default_tex_vs),
+            pathOrDefault(pixel_shader_path, default_tex_ps),
+            .{ pos_x, pos_y, pos_z },
+        ) catch |err| {
+            log(LogLevel.Error, "[ShadeFlow_AddTexturedCube] 添加贴图 cube 失败: {s}\n", .{@errorName(err)});
+            return false;
+        };
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddTexturedCube] Engine not initialized", .{});
+    return false;
+}
+
+/// 加载 glTF / GLB 模型（每个 primitive 一个渲染对象；有贴图的 part 自动走
+/// 带纹理路径）。着色器路径传 null 用默认着色器。
+export fn ShadeFlow_AddGltfObject(
+    path: [*:0]const u8,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    vertex_shader_path: ?[*:0]const u8,
+    pixel_shader_path: ?[*:0]const u8,
+    textured_vs_path: ?[*:0]const u8,
+    textured_ps_path: ?[*:0]const u8,
+) bool {
+    ensureDefaultShaderPaths();
+    if (engine_instance) |engine| {
+        engine.addGltfObject(
+            std.mem.sliceTo(path, 0),
+            pathOrDefault(vertex_shader_path, default_vs),
+            pathOrDefault(pixel_shader_path, default_ps),
+            pathOrDefault(textured_vs_path, default_tex_vs),
+            pathOrDefault(textured_ps_path, default_tex_ps),
+            .{ pos_x, pos_y, pos_z },
+        );
+        return true;
+    }
+    log(LogLevel.Error, "[ShadeFlow_AddGltfObject] Engine not initialized", .{});
+    return false;
 }

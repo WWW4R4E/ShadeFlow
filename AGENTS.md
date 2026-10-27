@@ -76,6 +76,7 @@ src/
 - `src/main.zig` = 独立窗口应用；`src/engine/root.zig` = 引擎模块根（跨平台引擎类型出口）；`src/capi.zig` = WinUI 3 的 C-ABI 导出（`ShadeFlow_*`，Composition 模式），只作为 Windows DLL 的根模块。`ShadeFlowNative.dll` 与 Composition 模式只在 Windows 有意义。
 - `ShadeFlow_GetSwapChain` 通过后端中立的 `Renderer.swapChainInteropHandle()` 返回 `?*anyopaque`（D3D12 是 `IDXGISwapChain1*`，非 Direct 后端返回 null）。
 - `src/capi.zig` 的每个 `export fn` 必须和 `ShadeFlowUI/Natives/ShadeFlowNative.cs` 的 `[DllImport(..., CallingConvention.Cdecl)]` 一一对应。`GeometryParams` 是 `extern` 布局的 tagged union，C# 侧用 `[StructLayout(LayoutKind.Explicit)]` 手工对齐——两边任意一侧改字段都要同步。
+- capi 的能力导出与独立窗口宿主对齐：场景构建（`Add*WithParams` / `AddTexturedCube` / `AddGltfObject`）、相机命令（走 `Engine.cameraZoom/cameraPan/cameraOrbit/cameraSelfRotate` 命令入口，不直接戳 `camera.*`）、拾取（`PickAt`）。着色器路径参数一律 `?[*:0]const u8`——C# 传 null 时回退 capi 在 `CreateEngineForComposition` 时按**宿主 exe 目录**解析的默认着色器（`shaders/Basic3D*.{cso,spv}`，后缀跟 `shader_format`），所以 C# 侧完全不用管着色器路径。
 - `Engine.update` 不泵消息：独立窗口模式由 windowkit 的 `plat.run()` 驱动，WinUI Composition 模式由 `capi.zig` 在每帧 `ShadeFlow_RenderFrame` 里泵 Win32 消息。`ShadeFlow_*` 导出与 `win32` 只存在于 `capi.zig`（仅 Windows 构建），`Engine` 本身是纯跨平台的。
 - `Engine` 用 `allocator.create` 分配：销毁用 `engine.destroy()`，不要只 `deinit()`（会漏 Engine 结构体本身）。
 
