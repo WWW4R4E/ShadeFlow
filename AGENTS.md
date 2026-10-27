@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ShadeFlow 分两半：`ShadeFlowNative/`（Zig 图形引擎与窗口）和 `ShadeFlowUI/`（WinUI 3 / C# 宿主）。
-Windows 默认 Direct3D 12（`-Dbackend=vulkan` 切换）；Linux 走 Vulkan；D3D11 后端已冻结待删（见「渲染后端分层」）；
+Windows 默认 Direct3D 12（`-Dbackend=vulkan` 切换）；Linux 走 Vulkan；
 macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLayer`。
 根 `Readme.md` 的结构图已同步到当前布局（`src/host/` 与 `src/engine/` 两层）；细节以代码为准。
 
@@ -15,9 +15,9 @@ macOS 固定走 Vulkan（MoltenVK → Metal），窗口是 AppKit + `CAMetalLaye
 - `zig build dll` —— **仅 Windows**：额外把 DLL 拷到 `../../ShadeFlowUI/`，UI 侧改动生效必须走这个。
 - `zig build app` —— **仅 macOS**：打包 `zig-out/ShadeFlow.app`（Info.plist + Resources/shaders），`main.zig` 会按 bundle 布局找 `../Resources/shaders`。
 - `zig build typecheck-macos` —— 从任意主机交叉分析 macOS 分支（只 `build-obj`，不链接，所以 Linux 上没 macOS SDK 也能过）。改动 `Instance.zig` / `host/Host.zig` / `main.zig` 的 macOS 路径后先跑它。
-- 着色器：`compile_shaders.bat`（cwd 必须是 `ShadeFlowNative`）。脚本里 fxc 路径写死为 `Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`，SDK 不同要改。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
+- 着色器：`compile_shaders_d3d12.bat`（dxc，SM 6.0；cwd 必须是 `ShadeFlowNative`）。产物进 `zig-out/shaders/*VS.cso`；`src/main.zig` 按**exe 目录**找 `..\shaders\...`，所以改了 `assets/shaders/*.hlsl` 必须先重编着色器。
 - 工具链：实际安装 Zig 0.17.0；`build.zig.zon` 写 `minimum_zig_version = 0.16.0`。0.17 已删掉的 API 不要再用：`b.args`（改用 `b.option`）、`Allocator.dupeZ` / `std.fmt.allocPrintZ`（用 `allocSentinel` + `@memcpy`）、数组重复 `[N]T{...} ** n` 写法（用 `@splat`）、`std.fs.cwd()`（改用 `std.Io.Dir.cwd()` + `std.Io`）、`std.time.nanoTimestamp`（改用 `std.Io.Clock.<clock>.now(io)`）。
-- 着色器工具链注意：D3D11 用 `compile_shaders.bat`（fxc，SM 5.0）；**D3D12 用 `compile_shaders_d3d12.bat`（dxc，SM 6.0）**，fxc 产出的 vs_5_0 二进制 D3D12 不认。两个脚本产物名相同（`*VS.cso` / `*PS.cso`），切后端后必须重跑对应脚本。
+- 着色器工具链注意：D3D12 用 `compile_shaders_d3d12.bat`（dxc，SM 6.0）。
 - 依赖（`win32`、`windowkit`、`vulkan`、`zigimg`）被拉到 `zig-pkg/`（gitignore 且按 hash 钉死）。直接改 `zig-pkg/` 里的库源码不是可持续修法；要改库得换成本地 path 依赖或上游 PR。
 - 资源加载：`engine/asset/Gltf.zig`（glTF 2.0 → `Engine.addGltfObject`，支持 data URI / 外部文件 / GLB；**每个 primitive 一个渲染对象**：有 baseColorTexture 的 part 走 TEXCOORD_0 + 图片字节（Engine 用 zigimg 解码建纹理），没有的走 COLOR_0 > 材质 baseColorFactor > 白色；RH→LH 转换在解析器里做 X 取反）与 `engine/asset/Png.zig`（zigimg 包装，统一转 RGBA8，顺带支持 JPEG 等格式）。
 - 纹理管线：`createTexture(pixels rgba8, w, h)` 上传 GPU；`draw/drawIndexed` 收 `texture: ?*const Texture` 参数，null 绑渲染器的 1×1 白色默认纹理。顶点布局带 `TEXCOORD` 语义时着色器自动切「带纹理变体」（D3D12 根签名多 t0/s0 描述符表，Vulkan 走 set1 combined image sampler，纹理创建时写好描述符）。引擎入口 `Engine.addTexturedIndexedRenderObject`；demo 纹理 `assets/textures/SampleTexture.jpg`（用户的图片副本，会被 git 跟踪）。样例模型/纹理装到 `zig-out/assets/`，`main.zig` 按 exe 目录相对定位（与 shaders/ 同一套逻辑）。
@@ -33,7 +33,6 @@ src/engine/render/
     mod.zig           ← 转发 build.zig 选定的 `render_backend` + 契约方法检查
     d3d12/            ← Windows（默认；作为独立模块 import win32）
     vulkan/           ← Windows（`-Dbackend=vulkan`）/ Linux / macOS（MoltenVK）
-    d3d11/            ← 已冻结待删：不满足新契约，`-Dbackend=d3d11` 编译失败
 ```
 
 - 后端由 `build.zig` 决定：`render_backend` 指向 `d3d12/mod.zig` 或 `vulkan/mod.zig`，未选中的后端不进入模块图。`Types.zig` 作为 `render_types` 模块共享，保证跨模块的 `NativeWindow` 等类型是同一份。

@@ -10,7 +10,6 @@
 //!     mod.zig         ← 按目标平台/构建选项编译期选后端
 //!     d3d12/          ← Windows（默认）
 //!     vulkan/         ← Windows（`-Dbackend=vulkan`）/ Linux / macOS
-//!     d3d11/          ← 已冻结待删（契约重构后不再满足新契约）
 //! ```
 //!
 //! `Engine.zig`、`scene/`、`root.zig` 只 import `render/Renderer.zig`；任何

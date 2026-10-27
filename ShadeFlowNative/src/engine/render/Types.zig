@@ -15,7 +15,7 @@ const std = @import("std");
 
 /// 当前编译进程序的后端。构建脚本按 `-Dbackend` 直接选模块，所以运行期
 /// 不会出现另一种值。
-pub const BackendKind = enum { d3d11, d3d12, vulkan };
+pub const BackendKind = enum { d3d12, vulkan };
 
 /// 着色器二进制格式：D3D12 是 dxc 产出的 DXBC/DXIL（`.cso`），Vulkan 是
 /// SPIR-V（`.spv`）。`main.zig` 按它选文件后缀。
