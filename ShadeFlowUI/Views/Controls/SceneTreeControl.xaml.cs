@@ -389,7 +389,7 @@ namespace ShadeFlow.Views.Controls
                         new TextBlock { Text = "X坐标:" },
                         new TextBox { Name = "PosXTextBox", Text = "0" },
                         new TextBlock { Text = "Y坐标:" },
-                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBox { Name = "PosYTextBox", Text = "0.5" }  // 默认落地：物体底面贴住 Y=0 地面,
                         new TextBlock { Text = "Z坐标:" },
                         new TextBox { Name = "PosZTextBox", Text = "0" }
                     }
@@ -436,7 +436,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryToEngine("Cube", ShadeFlowNative.GeometryParams.Cube(size), posX, posY, posZ);
+            AddGeometryToEngine("Cube", ShadeFlowNative.GeometryParams.Cube(size), SnapToGrid(posX), posY, SnapToGrid(posZ));
         }
 
         // 添加球体菜单项点击事件
@@ -456,7 +456,7 @@ namespace ShadeFlow.Views.Controls
                         new TextBlock { Text = "X坐标:" },
                         new TextBox { Name = "PosXTextBox", Text = "0" },
                         new TextBlock { Text = "Y坐标:" },
-                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBox { Name = "PosYTextBox", Text = "0.5" }  // 默认落地：物体底面贴住 Y=0 地面,
                         new TextBlock { Text = "Z坐标:" },
                         new TextBox { Name = "PosZTextBox", Text = "0" }
                     }
@@ -505,7 +505,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryToEngine("Sphere", ShadeFlowNative.GeometryParams.Sphere(radius, segments), posX, posY, posZ);
+            AddGeometryToEngine("Sphere", ShadeFlowNative.GeometryParams.Sphere(radius, segments), SnapToGrid(posX), posY, SnapToGrid(posZ));
         }
 
         // 添加圆柱体菜单项点击事件
@@ -527,7 +527,7 @@ namespace ShadeFlow.Views.Controls
                         new TextBlock { Text = "X坐标:" },
                         new TextBox { Name = "PosXTextBox", Text = "0" },
                         new TextBlock { Text = "Y坐标:" },
-                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBox { Name = "PosYTextBox", Text = "0.5" }  // 默认落地：物体底面贴住 Y=0 地面,
                         new TextBlock { Text = "Z坐标:" },
                         new TextBox { Name = "PosZTextBox", Text = "0" }
                     }
@@ -578,7 +578,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryToEngine("Cylinder", ShadeFlowNative.GeometryParams.Cylinder(radius, height, segments), posX, posY, posZ);
+            AddGeometryToEngine("Cylinder", ShadeFlowNative.GeometryParams.Cylinder(radius, height, segments), SnapToGrid(posX), posY, SnapToGrid(posZ));
         }
 
         // 添加圆锥体菜单项点击事件
@@ -600,7 +600,7 @@ namespace ShadeFlow.Views.Controls
                         new TextBlock { Text = "X坐标:" },
                         new TextBox { Name = "PosXTextBox", Text = "0" },
                         new TextBlock { Text = "Y坐标:" },
-                        new TextBox { Name = "PosYTextBox", Text = "0" },
+                        new TextBox { Name = "PosYTextBox", Text = "0.5" }  // 默认落地：物体底面贴住 Y=0 地面,
                         new TextBlock { Text = "Z坐标:" },
                         new TextBox { Name = "PosZTextBox", Text = "0" }
                     }
@@ -651,7 +651,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryToEngine("Cone", ShadeFlowNative.GeometryParams.Cone(radius, height, segments), posX, posY, posZ);
+            AddGeometryToEngine("Cone", ShadeFlowNative.GeometryParams.Cone(radius, height, segments), SnapToGrid(posX), posY, SnapToGrid(posZ));
         }
 
         // 添加几何体项到树中（返回新节点，供调用方登记引擎索引）
@@ -681,6 +681,12 @@ namespace ShadeFlow.Views.Controls
                 return newGeometry;
             }
             return null;
+        }
+
+        // 网格吸附：X/Z 取 0.5 的整数倍，与地面网格一格对齐（Y 不吸，落地值由对话框默认给出）
+        private static float SnapToGrid(double v)
+        {
+            return (float)(Math.Round(v * 2.0) / 2.0);
         }
 
         // 添加几何体：统一入口——把参数折算成 SceneObjectData 登记到树节点，

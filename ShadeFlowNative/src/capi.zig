@@ -165,6 +165,18 @@ export fn ShadeFlow_CreateEngineForComposition(
 
     log(LogLevel.Info, "[ShadeFlow_CreateEngineForComposition] Engine created successfully\n", .{});
     ensureDefaultShaderPaths();
+
+    // 地面参考网格：0.5 一格、±10 范围，编辑器的空间参照（独立于场景对象，
+    // 不占拾取/删除索引）。失败不阻塞引擎。
+    if (engine_instance) |engine| {
+        if (default_vs) |vs| {
+            if (default_ps) |ps| {
+                engine.addGroundGrid(vs, ps, 0.5, 20) catch |err| {
+                    log(LogLevel.Warning, "[capi] 地面网格创建失败: {s}\n", .{@errorName(err)});
+                };
+            }
+        }
+    }
     return true;
 }
 

@@ -211,17 +211,10 @@ namespace ShadeFlow.Views.Controls
             var point = e.GetCurrentPoint(this);
             var delta = (float)point.Properties.MouseWheelDelta;
 
-            var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
-
-            if (ctrlState.HasFlag(CoreVirtualKeyStates.Down))
-            {
-                var distance = ShadeFlowNative.GetCameraDistance();
-                var newDistance = distance - delta * 0.001f;
-                if (newDistance < 0.1f) newDistance = 0.1f;
-                if (newDistance > 10.0f) newDistance = 10.0f;
-                ShadeFlowNative.SetCameraDistance(newDistance);
-                e.Handled = true;
-            }
+            // 滚轮直接缩放（不再要求按住 Ctrl）。走 CameraZoom：目标距离有
+            // 0.1~10 的钳制，且距离按帧平滑收敛，手感比直接 Set 跳变好。
+            ShadeFlowNative.CameraZoom(delta * 0.5f);
+            e.Handled = true;
         }
 
 

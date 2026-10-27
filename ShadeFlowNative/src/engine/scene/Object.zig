@@ -27,6 +27,8 @@ pub const Object = struct {
     // 反变换到局部空间再和它做相交测试，所以旋转/缩放不需要重建。
     local_aabb: Aabb,
     is_select: bool = false,
+    /// 是否参与拾取（地面网格这类参照物不参与，见 `Engine.addGroundGrid`）。
+    pickable: bool = true,
 
     pub fn select(self: *Object, is_select: bool) void {
         self.is_select = is_select;

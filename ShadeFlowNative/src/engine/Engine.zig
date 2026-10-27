@@ -52,6 +52,9 @@ pub const Engine = struct {
     renderer: ?Renderer,
     render_objects: std.ArrayList(RenderObject),
     indexed_render_objects: std.ArrayList(IndexedRenderObject),
+    /// 地面参考网格（线段列表）。独立于上面两个列表：不占拾取/删除索引，
+    /// `clearRenderObjects` 也不清它——编辑器场景存取时它是常驻参照物。
+    ground_grid: ?RenderObject = null,
     time: Time,
     camera: Camera = Camera{},
     viewport: ?Viewport = null,
@@ -114,6 +117,7 @@ pub const Engine = struct {
         self.clearRenderObjects();
         self.render_objects.deinit(self.allocator);
         self.indexed_render_objects.deinit(self.allocator);
+        self.destroyGroundGrid();
 
         if (self.renderer) |*r| r.deinit();
         self.renderer = null;
@@ -214,7 +218,7 @@ pub const Engine = struct {
         var index_buffer = try renderer.createIndexBuffer(indices);
         errdefer index_buffer.deinit();
 
-        const sp = try self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_color);
+        const sp = try self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_color, .{});
 
         try self.appendIndexedOwnership(
             vertex_buffer,
@@ -257,7 +261,7 @@ pub const Engine = struct {
         var index_buffer = try renderer.createIndexBuffer(indices);
         errdefer index_buffer.deinit();
 
-        const sp = try self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_texcoord);
+        const sp = try self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_texcoord, .{});
 
         try self.appendIndexedOwnership(
             vertex_buffer,
@@ -328,7 +332,7 @@ pub const Engine = struct {
                     std.log.err("glTF part #{d} 索引缓冲创建失败: {s}", .{ part_index, @errorName(err) });
                     continue;
                 };
-                var sp = self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_color) catch |err| {
+                var sp = self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_color, .{}) catch |err| {
                     vertex_buffer.deinit();
                     index_buffer.deinit();
                     std.log.err("glTF part #{d} 着色器创建失败: {s}", .{ part_index, @errorName(err) });
@@ -375,7 +379,7 @@ pub const Engine = struct {
             @sizeOf(RendererTypes.VertexTex),
         );
         var index_buffer = try renderer.createIndexBuffer(part.indices);
-        var sp = try self.createShaderPipeline(renderer, textured_vs_path, textured_ps_path, RendererTypes.position_texcoord);
+        var sp = try self.createShaderPipeline(renderer, textured_vs_path, textured_ps_path, RendererTypes.position_texcoord, .{});
         errdefer {
             vertex_buffer.deinit();
             index_buffer.deinit();
@@ -409,6 +413,7 @@ pub const Engine = struct {
         vertex_shader_path: []const u8,
         pixel_shader_path: []const u8,
         layout: RendererTypes.VertexLayout,
+        state: RendererTypes.PipelineState,
     ) !struct { shader: *Renderer.Shader, pipeline: Renderer.Pipeline } {
         _ = self;
         const shader = try std.heap.page_allocator.create(Renderer.Shader);
@@ -416,11 +421,8 @@ pub const Engine = struct {
         shader.* = try renderer.createShaderFromFiles(vertex_shader_path, pixel_shader_path, layout);
         errdefer shader.deinit();
 
-        const pipeline = try renderer.createPipeline(shader, .{});
-        errdefer {
-            var p = pipeline;
-            p.deinit();
-        }
+        const pipeline = try renderer.createPipeline(shader, state);
+        errdefer { var p = pipeline; p.deinit(); }
 
         return .{ .shader = shader, .pipeline = pipeline };
     }
@@ -517,6 +519,72 @@ pub const Engine = struct {
         self.indexed_render_objects.clearAndFree(self.allocator);
     }
 
+    /// 地面参考网格（Y=0 的线段方格）。编辑器的空间参照物：
+    /// - 独立存 `ground_grid`，不占 `pickAt`/`removeRenderObject` 的索引空间；
+    /// - `clearRenderObjects` 不动它（场景存取时网格常驻）；
+    /// - 重复调用先销毁旧网格（换 spacing/范围重建）。
+    pub fn addGroundGrid(
+        self: *Engine,
+        vertex_shader_path: []const u8,
+        pixel_shader_path: []const u8,
+        spacing: f32,
+        half_count: u32,
+    ) !void {
+        const renderer = if (self.renderer) |*r| r else return error.EngineNotInitialized;
+
+        var vertices = std.ArrayList(Vertex).empty;
+        defer vertices.deinit(self.allocator);
+
+        const extent = @as(f32, @floatFromInt(half_count)) * spacing;
+        const gray = [4]f32{ 0.36, 0.36, 0.40, 1.0 };
+        const axis_x = [4]f32{ 0.62, 0.26, 0.26, 1.0 }; // X 轴：红
+        const axis_z = [4]f32{ 0.26, 0.36, 0.62, 1.0 }; // Z 轴：蓝
+
+        var i: i32 = -@as(i32, @intCast(half_count));
+        while (i <= @as(i32, @intCast(half_count))) : (i += 1) {
+            const t = @as(f32, @floatFromInt(i)) * spacing;
+
+            // 沿 X 方向的线（i==0 是 X 轴）
+            vertices.append(self.allocator, .{ .position = .{ -extent, 0, t }, .color = if (i == 0) axis_x else gray }) catch return error.OutOfMemory;
+            vertices.append(self.allocator, .{ .position = .{ extent, 0, t }, .color = if (i == 0) axis_x else gray }) catch return error.OutOfMemory;
+
+            // 沿 Z 方向的线（i==0 是 Z 轴）
+            vertices.append(self.allocator, .{ .position = .{ t, 0, -extent }, .color = if (i == 0) axis_z else gray }) catch return error.OutOfMemory;
+            vertices.append(self.allocator, .{ .position = .{ t, 0, extent }, .color = if (i == 0) axis_z else gray }) catch return error.OutOfMemory;
+        }
+
+        var vertex_buffer = try renderer.createVertexBuffer(
+            std.mem.sliceAsBytes(vertices.items),
+            @sizeOf(Vertex),
+        );
+        errdefer vertex_buffer.deinit();
+
+        // 线段列表拓扑：管线在创建时定型（显式管线契约）
+        const sp = try self.createShaderPipeline(renderer, vertex_shader_path, pixel_shader_path, RendererTypes.position_color, .{ .topology = .line_list });
+        errdefer {
+            sp.pipeline.deinit();
+            sp.shader.deinit();
+            std.heap.page_allocator.destroy(sp.shader);
+        }
+
+        self.destroyGroundGrid();
+        self.ground_grid = .{ .object = .{
+            .vertex_buffer = vertex_buffer,
+            .shader = sp.shader,
+            .pipeline = sp.pipeline,
+            .transform = .{ .position = .{ 0, 0, 0 } },
+            .local_aabb = computeLocalAabb(vertices.items),
+            .pickable = false,
+        } };
+    }
+
+    fn destroyGroundGrid(self: *Engine) void {
+        if (self.ground_grid) |*grid| {
+            grid.object.deinit();
+        }
+        self.ground_grid = null;
+    }
+
     /// 删除单个渲染对象（按「枚举顺序索引」，与 `pickAt` 返回的索引同一
     /// 坐标系：先 render_objects 再 indexed_render_objects）。宿主侧的对象
     /// 列表要同步维护这个映射。
@@ -599,6 +667,7 @@ pub const Engine = struct {
         defer all_objects.deinit(self.allocator);
 
         for (self.render_objects.items) |*render_object| {
+            if (!render_object.object.pickable) continue;
             all_objects.append(self.allocator, &render_object.object) catch |err| {
                 std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
                 return null;
@@ -606,6 +675,7 @@ pub const Engine = struct {
         }
 
         for (self.indexed_render_objects.items) |*indexed_render_object| {
+            if (!indexed_render_object.object.pickable) continue;
             all_objects.append(self.allocator, &indexed_render_object.object) catch |err| {
                 std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
                 return null;
@@ -632,6 +702,24 @@ pub const Engine = struct {
 
         const view_matrix = self.camera.getViewMatrix();
         const proj_matrix = self.camera.getProjectionMatrix();
+
+        // 地面网格最先画：它是参照物，永远垫在场景对象下面
+        if (self.ground_grid) |*grid| {
+            const object = &grid.object;
+            const grid_constants = self.buildConstants(
+                object.transform.getWorldMatrix(),
+                false,
+                view_matrix,
+                proj_matrix,
+            );
+            renderer.draw(
+                &object.pipeline,
+                &object.vertex_buffer,
+                object.vertex_buffer.count,
+                std.mem.asBytes(&grid_constants),
+                null,
+            );
+        }
 
         // 渲染普通对象：常量随 draw 传入（后端写自己的环形槽位）。
         for (self.render_objects.items) |*render_object| {
