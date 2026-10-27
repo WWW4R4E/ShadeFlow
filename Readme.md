@@ -67,7 +67,7 @@ ShadeFlow/
 - Windows 用 `-Dbackend=vulkan` 切 Vulkan。
 - 渲染契约以「严格后端」为基线：管线状态在 `createPipeline` 时定型
   （D3D12 烘进 PSO、Vulkan 烤进 `VkPipeline`），常量与纹理随 draw 参数传入，
-  没有 D3D11 式的即时状态修改。
+  没有即时状态修改。
 - 帧同步差异备忘：D3D12 当前每帧等 GPU（1 帧 in-flight），Vulkan 是
   2 帧 in-flight；后续把 D3D12 扩成双缓冲对齐。
 
