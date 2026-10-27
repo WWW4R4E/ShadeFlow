@@ -139,10 +139,16 @@ namespace ShadeFlow.Natives
             string vertex_shader_path, string pixel_shader_path, string textured_vs_path, string textured_ps_path);
 
         /// <summary>
-        /// 屏幕坐标拾取（客户区物理像素；命中选中该物体，未命中清空选中）
+        /// 屏幕坐标拾取（客户区像素；命中选中该物体并返回其索引，未命中清空选中并返回 -1）
         /// </summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void ShadeFlow_PickAt(float screen_x, float screen_y);
+        public static extern int ShadeFlow_PickAt(float screen_x, float screen_y);
+
+        /// <summary>
+        /// 删除单个渲染对象（索引与 PickAt 返回值同坐标系；删除后后续对象索引前移）
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern bool ShadeFlow_RemoveRenderObject(int index);
 
         /// <summary>
         /// 设置相机注视点（orbit / pan 的中心）
@@ -784,11 +790,19 @@ namespace ShadeFlow.Natives
         }
 
         /// <summary>
-        /// 屏幕坐标拾取（客户区物理像素）
+        /// 屏幕坐标拾取（客户区像素；返回命中对象索引，未命中 -1）
         /// </summary>
-        public static void PickAt(float screenX, float screenY)
+        public static int PickAt(float screenX, float screenY)
         {
-            ShadeFlow_PickAt(screenX, screenY);
+            return ShadeFlow_PickAt(screenX, screenY);
+        }
+
+        /// <summary>
+        /// 删除单个渲染对象（索引与 PickAt 返回值同坐标系）
+        /// </summary>
+        public static bool RemoveRenderObject(int index)
+        {
+            return ShadeFlow_RemoveRenderObject(index);
         }
 
         /// <summary>

@@ -143,7 +143,8 @@ pub const Host = struct {
         const left_down = self.input.isMouseButtonDown(.left);
         if (left_down and !self.mouse_left_prev) {
             const pos = self.input.getMousePosition();
-            self.engine.pickAt(
+            // 独立窗口侧只关心选中效果本身，索引留给 WinUI 宿主做列表联动。
+            _ = self.engine.pickAt(
                 @as(f32, @floatFromInt(pos.x)),
                 @as(f32, @floatFromInt(pos.y)),
             );

@@ -178,7 +178,10 @@ pub const Engine = struct {
         errdefer shader.deinit();
 
         const pipeline = try renderer.createPipeline(shader, .{});
-        errdefer { var p = pipeline; p.deinit(); }
+        errdefer {
+            var p = pipeline;
+            p.deinit();
+        }
 
         try self.render_objects.append(self.allocator, RenderObject{
             .object = .{
@@ -414,7 +417,10 @@ pub const Engine = struct {
         errdefer shader.deinit();
 
         const pipeline = try renderer.createPipeline(shader, .{});
-        errdefer { var p = pipeline; p.deinit(); }
+        errdefer {
+            var p = pipeline;
+            p.deinit();
+        }
 
         return .{ .shader = shader, .pipeline = pipeline };
     }
@@ -511,6 +517,25 @@ pub const Engine = struct {
         self.indexed_render_objects.clearAndFree(self.allocator);
     }
 
+    /// 删除单个渲染对象（按「枚举顺序索引」，与 `pickAt` 返回的索引同一
+    /// 坐标系：先 render_objects 再 indexed_render_objects）。宿主侧的对象
+    /// 列表要同步维护这个映射。
+    pub fn removeRenderObject(self: *Engine, index: usize) bool {
+        if (index < self.render_objects.items.len) {
+            var removed = self.render_objects.orderedRemove(index);
+            removed.deinit();
+            return true;
+        }
+
+        const indexed_index = index - self.render_objects.items.len;
+        if (indexed_index < self.indexed_render_objects.items.len) {
+            var removed = self.indexed_render_objects.orderedRemove(indexed_index);
+            removed.deinit();
+            return true;
+        }
+        return false;
+    }
+
     // =========================================================================
     // 主循环
     // =========================================================================
@@ -564,9 +589,11 @@ pub const Engine = struct {
     }
 
     /// 屏幕坐标拾取（客户区物理像素，与 `Viewport` 同一坐标系）。
-    /// 命中就只选中该物体，没命中清空所有选中状态。
-    pub fn pickAt(self: *Engine, screen_x: f32, screen_y: f32) void {
-        const viewport = self.viewport orelse return;
+    /// 命中就只选中该物体并返回它在「枚举顺序」（render_objects 在前，
+    /// indexed_render_objects 在后，与 `removeRenderObject` 的索引同坐标系）
+    /// 里的下标；没命中清空所有选中状态并返回 null。
+    pub fn pickAt(self: *Engine, screen_x: f32, screen_y: f32) ?usize {
+        const viewport = self.viewport orelse return null;
 
         var all_objects = std.ArrayList(*Object).empty;
         defer all_objects.deinit(self.allocator);
@@ -574,23 +601,28 @@ pub const Engine = struct {
         for (self.render_objects.items) |*render_object| {
             all_objects.append(self.allocator, &render_object.object) catch |err| {
                 std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
-                return;
+                return null;
             };
         }
 
         for (self.indexed_render_objects.items) |*indexed_render_object| {
             all_objects.append(self.allocator, &indexed_render_object.object) catch |err| {
                 std.log.err("收集可拾取对象失败: {s}", .{@errorName(err)});
-                return;
+                return null;
             };
         }
 
         const result = Picker.pick(screen_x, screen_y, &viewport, &self.camera, all_objects.items);
         const picked_object: ?*Object = if (result) |hit| hit.object else null;
 
-        for (all_objects.items) |object| {
+        var picked_index: ?usize = null;
+        for (all_objects.items, 0..) |object, index| {
             object.select(picked_object != null and object == picked_object.?);
+            if (picked_object != null and object == picked_object.?) {
+                picked_index = index;
+            }
         }
+        return picked_index;
     }
 
     pub fn render(self: *Engine) void {

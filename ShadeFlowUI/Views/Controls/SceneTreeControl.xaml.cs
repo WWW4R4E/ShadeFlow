@@ -19,6 +19,45 @@ namespace ShadeFlow.Views.Controls
         {
             this.InitializeComponent();
             LoadTestData();
+
+            // 3D 视口里左键拾取 → 场景树联动选中（Unloaded 退订防泄漏）。
+            SwapChainControl.ObjectPicked += OnViewportObjectPicked;
+            this.Unloaded += (s, e) => SwapChainControl.ObjectPicked -= OnViewportObjectPicked;
+        }
+
+        // 视口拾取联动：按引擎索引找到树节点并选中（点空处引擎已清空选中，树不动）。
+        private void OnViewportObjectPicked(object sender, int engineIndex)
+        {
+            if (engineIndex < 0) return;
+            var item = FindByEngineIndex(engineIndex);
+            if (item != null)
+            {
+                SceneTreeView.SelectedItem = item;
+            }
+        }
+
+        // 按引擎索引递归找树节点
+        private TreeViewItemModel FindByEngineIndex(int engineIndex)
+        {
+            var itemsSource = SceneTreeView.ItemsSource as IEnumerable<TreeViewItemModel>;
+            if (itemsSource == null) return null;
+            foreach (var rootItem in itemsSource)
+            {
+                var found = FindByEngineIndexRecursive(rootItem, engineIndex);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private TreeViewItemModel FindByEngineIndexRecursive(TreeViewItemModel current, int engineIndex)
+        {
+            if (current.EngineIndex == engineIndex) return current;
+            foreach (var child in current.Children)
+            {
+                var found = FindByEngineIndexRecursive(child, engineIndex);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         // 加载测试数据
@@ -148,10 +187,15 @@ namespace ShadeFlow.Views.Controls
         {
             if (SceneTreeView.SelectedItem is TreeViewItemModel selectedItem)
             {
-                // 从父节点中移除当前节点
+                // 引擎对象：先单删引擎侧（删除后后续索引前移），分组节点只动树
+                if (selectedItem.EngineIndex >= 0)
+                {
+                    if (ShadeFlowNative.RemoveRenderObject(selectedItem.EngineIndex))
+                    {
+                        ShiftEngineIndexes(selectedItem.EngineIndex);
+                    }
+                }
                 RemoveItemFromTree(selectedItem);
-                // 重新构建渲染场景
-                RebuildRenderScene();
             }
         }
         
@@ -373,9 +417,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryItem("Cube", "");
-            var p = ShadeFlowNative.GeometryParams.Cube(size);
-            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            AddGeometryToEngine("Cube", ShadeFlowNative.GeometryParams.Cube(size), posX, posY, posZ);
         }
 
         // 添加球体菜单项点击事件
@@ -444,9 +486,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryItem("Sphere", "");
-            var p = ShadeFlowNative.GeometryParams.Sphere(radius, segments);
-            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            AddGeometryToEngine("Sphere", ShadeFlowNative.GeometryParams.Sphere(radius, segments), posX, posY, posZ);
         }
 
         // 添加圆柱体菜单项点击事件
@@ -519,9 +559,7 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryItem("Cylinder", "");
-            var p = ShadeFlowNative.GeometryParams.Cylinder(radius, height, segments);
-            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            AddGeometryToEngine("Cylinder", ShadeFlowNative.GeometryParams.Cylinder(radius, height, segments), posX, posY, posZ);
         }
 
         // 添加圆锥体菜单项点击事件
@@ -594,13 +632,11 @@ namespace ShadeFlow.Views.Controls
                 }
             }
 
-            AddGeometryItem("Cone", "");
-            var p = ShadeFlowNative.GeometryParams.Cone(radius, height, segments);
-            ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DVS.cso", "C:/Users/123/Desktop/ShadeFlow/ShadeFlowNative/zig-out/shaders/Basic3DPS.cso");
+            AddGeometryToEngine("Cone", ShadeFlowNative.GeometryParams.Cone(radius, height, segments), posX, posY, posZ);
         }
 
-        // 添加几何体项到树中
-        private void AddGeometryItem(string name, string icon)
+        // 添加几何体项到树中（返回新节点，供调用方登记引擎索引）
+        private TreeViewItemModel AddGeometryItem(string name, string icon)
         {
             // 找到Geometry节点
             TreeViewItemModel geometryNode = null;
@@ -623,6 +659,69 @@ namespace ShadeFlow.Views.Controls
                     Icon = icon
                 };
                 geometryNode.Children.Add(newGeometry);
+                return newGeometry;
+            }
+            return null;
+        }
+
+        // 添加几何体：先在树里按引擎对象数登记索引，再调引擎（着色器路径传 null 用引擎默认）。
+        // 引擎侧失败时把树节点撤掉，保证树里的索引和引擎对象一一对应。
+        private void AddGeometryToEngine(string name, ShadeFlowNative.GeometryParams p, float posX, float posY, float posZ)
+        {
+            int engineIndex = CountEngineItems();
+            var item = AddGeometryItem(name, "\uE7B8");
+            if (item == null) return;
+
+            if (ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, null, null))
+            {
+                item.EngineIndex = engineIndex;
+            }
+            else
+            {
+                RemoveItemFromTree(item);
+                Debug.WriteLine("添加几何体到引擎失败，已撤销树节点");
+            }
+        }
+
+        // 统计树里已登记的引擎对象数（= 引擎当前对象数，即新对象的索引）
+        private int CountEngineItems()
+        {
+            int count = 0;
+            var itemsSource = SceneTreeView.ItemsSource as IEnumerable<TreeViewItemModel>;
+            if (itemsSource == null) return 0;
+            foreach (var rootItem in itemsSource)
+            {
+                CountEngineItemsRecursive(rootItem, ref count);
+            }
+            return count;
+        }
+
+        private void CountEngineItemsRecursive(TreeViewItemModel current, ref int count)
+        {
+            if (current.EngineIndex >= 0) count++;
+            foreach (var child in current.Children)
+            {
+                CountEngineItemsRecursive(child, ref count);
+            }
+        }
+
+        // 删除对象后，比它大的索引全部前移（引擎侧 orderedRemove 的语义）
+        private void ShiftEngineIndexes(int removedIndex)
+        {
+            var itemsSource = SceneTreeView.ItemsSource as IEnumerable<TreeViewItemModel>;
+            if (itemsSource == null) return;
+            foreach (var rootItem in itemsSource)
+            {
+                ShiftEngineIndexesRecursive(rootItem, removedIndex);
+            }
+        }
+
+        private void ShiftEngineIndexesRecursive(TreeViewItemModel current, int removedIndex)
+        {
+            if (current.EngineIndex > removedIndex) current.EngineIndex--;
+            foreach (var child in current.Children)
+            {
+                ShiftEngineIndexesRecursive(child, removedIndex);
             }
         }
 
@@ -641,68 +740,5 @@ namespace ShadeFlow.Views.Controls
             return null;
         }
 
-        // 重新构建渲染场景
-        private void RebuildRenderScene()
-        {
-            try
-            {
-                // 清除所有渲染对象
-                ShadeFlowNative.ShadeFlow_ClearRenderObjects();
-
-                // 找到Geometry节点
-                TreeViewItemModel geometryNode = null;
-                var itemsSource = SceneTreeView.ItemsSource as IEnumerable<TreeViewItemModel>;
-                if (itemsSource != null)
-                {
-                    foreach (var rootItem in itemsSource)
-                    {
-                        geometryNode = FindGeometryNode(rootItem);
-                        if (geometryNode != null)
-                            break;
-                    }
-                }
-
-                // 重新添加所有几何体
-                if (geometryNode != null)
-                {
-                    foreach (var geometryItem in geometryNode.Children)
-                    {
-                        switch (geometryItem.Name)
-                        {
-                            case "Cube":
-                                {
-                                    var p = ShadeFlowNative.GeometryParams.Cube();
-                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
-                                }
-                                break;
-                            case "Sphere":
-                                {
-                                    var p = ShadeFlowNative.GeometryParams.Sphere();
-                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
-                                }
-                                break;
-                            case "Cylinder":
-                                {
-                                    var p = ShadeFlowNative.GeometryParams.Cylinder();
-                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
-                                }
-                                break;
-                            case "Cone":
-                                {
-                                    var p = ShadeFlowNative.GeometryParams.Cone();
-                                    ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, 0, 0, 0, "", "");
-                                }
-                                break;
-                        }
-                    }
-                }
-
-                Debug.WriteLine("渲染场景重建成功");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"重建渲染场景错误: {ex.Message}");
-            }
-        }
     }
 }

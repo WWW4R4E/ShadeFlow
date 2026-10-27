@@ -148,6 +148,12 @@ namespace ShadeFlow.Views.Controls
         }
 
 
+        /// <summary>
+        /// 3D 视口左键拾取后触发：参数是引擎对象索引（-1 = 点空处，引擎已清空选中）。
+        /// 场景树等面板订阅它做联动。
+        /// </summary>
+        public static event EventHandler<int> ObjectPicked;
+
         // 输入状态跟踪
         private bool _isMouseMiddleButtonPressed = false;
         private Windows.Foundation.Point _lastMousePosition;
@@ -160,7 +166,14 @@ namespace ShadeFlow.Views.Controls
             if (point.Properties.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed)
             {
                 _isMouseMiddleButtonPressed = true;
-            } 
+            }
+            else if (point.Properties.PointerUpdateKind == Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed)
+            {
+                // 拾取坐标用面板逻辑尺寸（DIP）：渲染器尺寸就是 ResizeRenderer 传进来的
+                // 面板逻辑尺寸，两者同一坐标系，不需要再乘 CompositionScale。
+                int index = ShadeFlowNative.PickAt((float)point.Position.X, (float)point.Position.Y);
+                ObjectPicked?.Invoke(this, index);
+            }
         }
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)

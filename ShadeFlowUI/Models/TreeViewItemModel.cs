@@ -43,6 +43,12 @@ namespace ShadeFlow.Models
 
         public ObservableCollection<TreeViewItemModel> Children { get; set; } = new ObservableCollection<TreeViewItemModel>();
 
+        /// <summary>
+        /// 对应引擎渲染对象的索引（-1 = 不是引擎对象，如 Scene/Geometry 分组节点）。
+        /// 与 ShadeFlow_PickAt / RemoveRenderObject 的索引同一坐标系。
+        /// </summary>
+        public int EngineIndex { get; set; } = -1;
+
         // 根据展开状态返回适当的文件夹图标，否则返回默认图标
         private string GetDefaultIcon()
         {

@@ -88,8 +88,8 @@ fn ensureDefaultShaderPaths() void {
         .spirv => "spv",
     };
     const names = [_][]const u8{
-        "Basic3DVS",          "Basic3DPS",
-        "Basic3DTexturedVS",  "Basic3DTexturedPS",
+        "Basic3DVS",         "Basic3DPS",
+        "Basic3DTexturedVS", "Basic3DTexturedPS",
     };
 
     const slots = [_]*?[:0]u8{ &default_vs, &default_ps, &default_tex_vs, &default_tex_ps };
@@ -525,12 +525,32 @@ export fn ShadeFlow_SetCameraTarget(x: f32, y: f32, z: f32) void {
 }
 
 /// 屏幕坐标拾取（客户区物理像素，与 SwapChainPanel 尺寸同一坐标系）。
-export fn ShadeFlow_PickAt(screen_x: f32, screen_y: f32) void {
+/// 返回命中对象的索引（枚举顺序，与 RemoveRenderObject 的索引同坐标系），
+/// 没命中返回 -1（同时清空所有选中状态）。
+export fn ShadeFlow_PickAt(screen_x: f32, screen_y: f32) c_int {
     if (engine_instance) |engine| {
-        engine.pickAt(screen_x, screen_y);
-    } else {
-        log(LogLevel.Error, "[ShadeFlow_PickAt] Engine not initialized\n", .{});
+        if (engine.pickAt(screen_x, screen_y)) |index| {
+            return @intCast(index);
+        }
+        return -1;
     }
+    log(LogLevel.Error, "[ShadeFlow_PickAt] Engine not initialized\n", .{});
+    return -1;
+}
+
+/// 删除单个渲染对象（索引与 PickAt 返回值同坐标系；对象删除后，后面
+/// 对象的索引会前移，宿主侧列表需同步）。返回是否删除成功。
+export fn ShadeFlow_RemoveRenderObject(index: c_int) bool {
+    if (engine_instance) |engine| {
+        if (index < 0) return false;
+        const ok = engine.removeRenderObject(@intCast(index));
+        if (!ok) {
+            log(LogLevel.Warning, "[ShadeFlow_RemoveRenderObject] 索引越界: {d}\n", .{index});
+        }
+        return ok;
+    }
+    log(LogLevel.Error, "[ShadeFlow_RemoveRenderObject] Engine not initialized\n", .{});
+    return false;
 }
 
 /// 添加贴图立方体：内部生成 UV cube（每面贴图坐标），PNG/JPEG 由引擎解码。
