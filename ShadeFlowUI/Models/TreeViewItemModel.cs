@@ -49,6 +49,12 @@ namespace ShadeFlow.Models
         /// </summary>
         public int EngineIndex { get; set; } = -1;
 
+        /// <summary>
+        /// 引擎对象的完整参数（几何类型/尺寸/位置），保存场景 JSON 的数据源；
+        /// 分组节点为 null。
+        /// </summary>
+        public SceneObjectData SceneData { get; set; }
+
         // 根据展开状态返回适当的文件夹图标，否则返回默认图标
         private string GetDefaultIcon()
         {

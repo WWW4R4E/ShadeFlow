@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using ShadeFlow.Models;
 using ShadeFlow.Natives;
 using System;
@@ -13,11 +14,17 @@ namespace ShadeFlow.Views.Controls
 {
     public sealed partial class SceneTreeControl : UserControl
     {
+        /// <summary>
+        /// 全局唯一实例：MainWindow 的文件菜单（保存/加载场景）通过它进入场景树。
+        /// </summary>
+        public static SceneTreeControl? Instance { get; private set; }
+
         private ObservableCollection<TreeViewItemModel> _treeViewItems;
 
         public SceneTreeControl()
         {
             this.InitializeComponent();
+            Instance = this;
             LoadTestData();
 
             // 3D 视口里左键拾取 → 场景树联动选中（Unloaded 退订防泄漏）。
@@ -664,22 +671,134 @@ namespace ShadeFlow.Views.Controls
             return null;
         }
 
-        // 添加几何体：先在树里按引擎对象数登记索引，再调引擎（着色器路径传 null 用引擎默认）。
-        // 引擎侧失败时把树节点撤掉，保证树里的索引和引擎对象一一对应。
+        // 添加几何体：统一入口——把参数折算成 SceneObjectData 登记到树节点，
+        // 再调引擎（着色器路径传 null 用引擎默认）。引擎侧失败时把树节点撤掉，
+        // 保证树里的索引和引擎对象一一对应。
         private void AddGeometryToEngine(string name, ShadeFlowNative.GeometryParams p, float posX, float posY, float posZ)
         {
+            AddObjectFromData(DataFromParams(name, p, posX, posY, posZ));
+        }
+
+        // 按 SceneObjectData 添加对象（加载场景和交互添加共用这一条路径）
+        private void AddObjectFromData(SceneObjectData data)
+        {
             int engineIndex = CountEngineItems();
-            var item = AddGeometryItem(name, "\uE7B8");
+            var item = AddGeometryItem(string.IsNullOrEmpty(data.Name) ? data.Type : data.Name, "\uE7B8");
             if (item == null) return;
 
-            if (ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, posX, posY, posZ, null, null))
+            var p = ParamsFromData(data);
+            if (ShadeFlowNative.ShadeFlow_AddGeometryObjectWithParams(ref p, (float)data.Position[0], (float)data.Position[1], (float)data.Position[2], null, null))
             {
                 item.EngineIndex = engineIndex;
+                item.SceneData = data;
             }
             else
             {
                 RemoveItemFromTree(item);
                 Debug.WriteLine("添加几何体到引擎失败，已撤销树节点");
+            }
+        }
+
+        // GeometryParams → SceneObjectData（保存场景用）
+        private static SceneObjectData DataFromParams(string name, ShadeFlowNative.GeometryParams p, float x, float y, float z)
+        {
+            var data = new SceneObjectData { Name = name, Position = new double[] { x, y, z } };
+            switch (p.type)
+            {
+                case ShadeFlowNative.GeometryType.Cube:
+                    data.Type = "cube"; data.Size = p.cube.size; break;
+                case ShadeFlowNative.GeometryType.Sphere:
+                    data.Type = "sphere"; data.Radius = p.sphere.radius; data.Segments = p.sphere.segments; break;
+                case ShadeFlowNative.GeometryType.Cylinder:
+                    data.Type = "cylinder"; data.Radius = p.cylinder.radius; data.Height = p.cylinder.height; data.Segments = p.cylinder.segments; break;
+                case ShadeFlowNative.GeometryType.Cone:
+                    data.Type = "cone"; data.Radius = p.cone.radius; data.Height = p.cone.height; data.Segments = p.cone.segments; break;
+            }
+            return data;
+        }
+
+        // SceneObjectData → GeometryParams（加载场景用）
+        private static ShadeFlowNative.GeometryParams ParamsFromData(SceneObjectData data)
+        {
+            switch (data.Type)
+            {
+                case "sphere": return ShadeFlowNative.GeometryParams.Sphere((float)data.Radius, data.Segments);
+                case "cylinder": return ShadeFlowNative.GeometryParams.Cylinder((float)data.Radius, (float)data.Height, data.Segments);
+                case "cone": return ShadeFlowNative.GeometryParams.Cone((float)data.Radius, (float)data.Height, data.Segments);
+                default: return ShadeFlowNative.GeometryParams.Cube((float)data.Size);
+            }
+        }
+
+        // 找到 Geometry 分组节点（找不到返回 null）
+        private TreeViewItemModel FindGeometryRoot()
+        {
+            var itemsSource = SceneTreeView.ItemsSource as IEnumerable<TreeViewItemModel>;
+            if (itemsSource == null) return null;
+            foreach (var rootItem in itemsSource)
+            {
+                var node = FindGeometryNode(rootItem);
+                if (node != null) return node;
+            }
+            return null;
+        }
+
+        // 保存场景：把 Geometry 下所有带参数的对象写进 JSON
+        public bool SaveScene(string path)
+        {
+            try
+            {
+                var file = new SceneFile();
+                var geometryNode = FindGeometryRoot();
+                if (geometryNode != null)
+                {
+                    foreach (var child in geometryNode.Children)
+                    {
+                        if (child.SceneData != null)
+                        {
+                            file.Objects.Add(child.SceneData);
+                        }
+                    }
+                }
+
+                var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(file, options));
+                Debug.WriteLine($"场景已保存: {path}（{file.Objects.Count} 个对象）");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"保存场景失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        // 加载场景：清空引擎与树里的几何体（分组节点保留），按 JSON 重建
+        public bool LoadScene(string path)
+        {
+            try
+            {
+                var file = System.Text.Json.JsonSerializer.Deserialize<SceneFile>(File.ReadAllText(path));
+                if (file?.Objects == null)
+                {
+                    Debug.WriteLine("场景文件格式不正确");
+                    return false;
+                }
+
+                ShadeFlowNative.ShadeFlow_ClearRenderObjects();
+                var geometryNode = FindGeometryRoot();
+                geometryNode?.Children.Clear();
+
+                foreach (var data in file.Objects)
+                {
+                    AddObjectFromData(data);
+                }
+                Debug.WriteLine($"场景已加载: {path}（{file.Objects.Count} 个对象）");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"加载场景失败: {ex.Message}");
+                return false;
             }
         }
 

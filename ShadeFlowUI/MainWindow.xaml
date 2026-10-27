@@ -46,6 +46,10 @@
                     <MenuBar>
                         <MenuBarItem Title="文件">
                             <MenuFlyoutItem Text="打开..." Click="Open_Click"/>
+                            <MenuFlyoutSeparator/>
+                            <MenuFlyoutItem Text="保存场景..." Click="SaveScene_Click"/>
+                            <MenuFlyoutItem Text="加载场景..." Click="LoadScene_Click"/>
+                            <MenuFlyoutSeparator/>
                             <MenuFlyoutItem Text="新建窗口" Click="NewWindow_Click"/>
                             <MenuFlyoutItem Text="退出" Click="Exit_Click"/>
                         </MenuBarItem>
